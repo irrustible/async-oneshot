@@ -61,7 +61,7 @@ impl<T: Send> Future for SenderWait<T> {
             })
             .map(|res| {
                 res.map(|()| Sender {
-                    inner: mem::take(&mut this.inner).unwrap(),
+                    inner: this.inner.take().unwrap(),
                 })
             })
     }
