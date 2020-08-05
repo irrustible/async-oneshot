@@ -1,7 +1,7 @@
 use async_oneshot::*;
 use futures_lite::*;
-use std::thread::spawn;
 use std::mem::drop;
+use std::thread::spawn;
 
 #[test]
 fn success_one_thread() {

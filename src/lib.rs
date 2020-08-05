@@ -37,6 +37,10 @@ pub struct Sender<T: Send> {
     inner: Arc<Inner<T>>,
 }
 
+pub struct Receiver<T: Send> {
+    inner: Arc<Inner<T>>,
+}
+
 // Can be polled as a Future to wait for a receiver to be listening.
 impl<T: Send> Sender<T> {
     /// Waits for a Receiver to be waiting for us to send something
@@ -84,13 +88,19 @@ impl<T: Send> Sender<T> {
     }
 }
 
-pub struct Receiver<T: Send> {
-    inner: Arc<Inner<T>>,
+fn transact_and_wake<T, F>(inner: &Inner<T>, f: F)
+where
+    T: Send,
+    F: FnOnce(&mut Option<State<T>>) -> Option<Waker>,
+{
+    if let Some(waker) = inner.transact(f) {
+        waker.wake();
+    }
 }
 
 impl<T: Send> Drop for Sender<T> {
     fn drop(&mut self) {
-        let ret = self.inner.transact(|state| {
+        transact_and_wake(&self.inner, |state| {
             let (next_state, next_waker) = match state.take() {
                 Some(State::Waker(waker)) => (State::Closed, Some(waker)),
                 // Could be Ready or Closed, either is fine
@@ -100,15 +110,12 @@ impl<T: Send> Drop for Sender<T> {
             *state = Some(next_state);
             next_waker
         });
-        if let Some(waker) = ret {
-            waker.wake();
-        }
     }
 }
 
 impl<T: Send> Drop for Receiver<T> {
     fn drop(&mut self) {
-        let ret = self.inner.transact(|state| {
+        transact_and_wake(&self.inner, |state| {
             if let Some(State::Waker(waker)) = core::mem::replace(&mut *state, Some(State::Closed))
             {
                 Some(waker)
@@ -116,9 +123,6 @@ impl<T: Send> Drop for Receiver<T> {
                 None
             }
         });
-        if let Some(waker) = ret {
-            waker.wake();
-        }
     }
 }
 
