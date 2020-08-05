@@ -13,8 +13,8 @@ edition = "2018"
 readme = "README.md"
 
 [dependencies]
-futures-lite="0.1"
 ping-pong-cell = "0.1"
 
-# [dev-dependencies]
+[dev-dependencies]
+futures-lite = "0.1"
 # waker-fn = "1"

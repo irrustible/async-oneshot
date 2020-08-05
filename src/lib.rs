@@ -1,12 +1,11 @@
 #![no_std]
 extern crate alloc;
 use alloc::sync::Arc;
+use core::future::Future;
+use core::mem;
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
-use futures_lite::{future::poll_fn, Future};
 use ping_pong_cell::PingPongCell;
-
-mod delay;
 
 enum State<T> {
     Waker(Waker),
@@ -36,14 +35,19 @@ pub struct Receiver<T: Send> {
     inner: Arc<Inner<T>>,
 }
 
-// Can be polled as a Future to wait for a receiver to be listening.
-impl<T: Send> Sender<T> {
-    /// Waits for a Receiver to be waiting for us to send something
-    /// (i.e. allows you to produce a value to send on demand).
-    pub async fn wait(self) -> Result<Self, Closed> {
-        loop {
-            let wake_me = poll_fn(|c| Poll::Ready(c.waker().clone())).await;
-            let ret = self.inner.transact(|state| match state.take() {
+struct SenderWait<T: Send> {
+    inner: Option<Arc<Inner<T>>>,
+}
+
+impl<T: Send> Future for SenderWait<T> {
+    type Output = Result<Sender<T>, Closed>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<Sender<T>, Closed>> {
+        let this = Pin::into_inner(self);
+        this.inner
+            .as_ref()
+            .unwrap()
+            .transact(|state| match state.take() {
                 Some(State::Closed) => Poll::Ready(Err(Closed)),
                 Some(State::Waker(waker)) => {
                     *state = Some(State::Waker(waker));
@@ -51,15 +55,26 @@ impl<T: Send> Sender<T> {
                 }
                 Some(State::Ready(_)) => unreachable!(),
                 None => {
-                    *state = Some(State::Waker(wake_me));
+                    *state = Some(State::Waker(cx.waker().clone()));
                     Poll::Pending
                 }
-            });
-            match ret {
-                Poll::Pending => delay::delay().await,
-                Poll::Ready(res) => return res.map(|()| self),
-            }
-        }
+            })
+            .map(|res| {
+                res.map(|()| Sender {
+                    inner: mem::take(&mut this.inner).unwrap(),
+                })
+            })
+    }
+}
+
+// Can be polled as a Future to wait for a receiver to be listening.
+impl<T: Send> Sender<T> {
+    /// Waits for a Receiver to be waiting for us to send something
+    /// (i.e. allows you to produce a value to send on demand).
+    pub async fn wait(self) -> Result<Self, Closed> {
+        let inner = self.inner.clone();
+        mem::forget(self);
+        SenderWait { inner: Some(inner) }.await
     }
 
     /// Sends a message on the channel
@@ -112,8 +127,7 @@ impl<T: Send> Drop for Sender<T> {
 impl<T: Send> Drop for Receiver<T> {
     fn drop(&mut self) {
         transact_and_wake(&self.inner, |state| {
-            if let Some(State::Waker(waker)) = core::mem::replace(&mut *state, Some(State::Closed))
-            {
+            if let Some(State::Waker(waker)) = mem::replace(&mut *state, Some(State::Closed)) {
                 Some(waker)
             } else {
                 None
