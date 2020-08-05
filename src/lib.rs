@@ -8,10 +8,16 @@ use ping_pong_cell::PingPongCell;
 
 mod delay;
 
+enum State<T> {
+    Waker(Waker),
+    Ready(T),
+    Closed,
+}
+
+type Inner<T> = PingPongCell<State<T>>;
+
 pub fn oneshot<T: Send>() -> (Sender<T>, Receiver<T>) {
-    let inner = Arc::new(Inner {
-        cell: PingPongCell::new(None),
-    });
+    let inner = Arc::new(PingPongCell::new(None));
     let sender = Sender {
         inner: inner.clone(),
     };
@@ -40,9 +46,8 @@ impl<T: Send> Sender<T> {
     /// (i.e. allows you to produce a value to send on demand).
     pub async fn wait(self) -> Result<Self, Closed> {
         loop {
-            let inner = &self.inner;
             let wake_me = poll_fn(|c| Poll::Ready(c.waker().clone())).await;
-            let ret = inner.cell.transact(|state| match state.take() {
+            let ret = self.inner.transact(|state| match state.take() {
                 Some(State::Closed) => Poll::Ready(Err(Closed())),
                 Some(State::Waker(waker)) => {
                     *state = Some(State::Waker(waker));
@@ -63,7 +68,6 @@ impl<T: Send> Sender<T> {
     /// Sends a message on the channel
     pub fn send(self, value: T) -> Result<(), Closed> {
         self.inner
-            .cell
             .transact(|state| {
                 match state.take() {
                     Some(State::Closed) => Err(Closed()),
@@ -92,19 +96,9 @@ impl<T: Send> Receiver<T> {
     pub fn close(self) {}
 }
 
-enum State<T> {
-    Waker(Waker),
-    Ready(T),
-    Closed,
-}
-
-struct Inner<T> {
-    cell: PingPongCell<State<T>>,
-}
-
 impl<T: Send> Drop for Sender<T> {
     fn drop(&mut self) {
-        let ret = self.inner.cell.transact(|state| {
+        let ret = self.inner.transact(|state| {
             let (next_state, next_waker) = match state.take() {
                 Some(State::Waker(waker)) => (State::Closed, Some(waker)),
                 // Could be Ready or Closed, either is fine
@@ -122,7 +116,7 @@ impl<T: Send> Drop for Sender<T> {
 
 impl<T: Send> Drop for Receiver<T> {
     fn drop(&mut self) {
-        let ret = self.inner.cell.transact(|state| {
+        let ret = self.inner.transact(|state| {
             if let Some(State::Waker(waker)) = core::mem::replace(&mut *state, Some(State::Closed))
             {
                 Some(waker)
@@ -140,7 +134,7 @@ impl<T: Send> Future for Receiver<T> {
     type Output = Result<T, Closed>;
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Result<T, Closed>> {
         let this = Pin::into_inner(self);
-        this.inner.cell.transact(|state| match state.take() {
+        this.inner.transact(|state| match state.take() {
             Some(State::Closed) => Poll::Ready(Err(Closed())),
             Some(State::Ready(value)) => Poll::Ready(Ok(value)),
             Some(State::Waker(waker)) => {
