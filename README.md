@@ -27,9 +27,10 @@ fn success_one_thread() {
 Crap numbers from my shitty 2015 macbook pro:
 
 ```
-test create           ... bench:         131 ns/iter (+/- 10)
-test create_send      ... bench:         142 ns/iter (+/- 6)
-test create_send_recv ... bench:         156 ns/iter (+/- 33)
+test create                ... bench:         127 ns/iter (+/- 16)
+test create_send           ... bench:         143 ns/iter (+/- 14)
+test create_send_recv      ... bench:         156 ns/iter (+/- 18)
+test create_wait_send_recv ... bench:         899 ns/iter (+/- 80)
 ```
 
 So even on this thing, 6.5 million create-send-receives a second?

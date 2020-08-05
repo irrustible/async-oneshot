@@ -3,9 +3,7 @@
 extern crate test;
 use test::{black_box, Bencher};
 use async_oneshot::*;
-use futures_lite::future::block_on;
-// use std::pin::Pin;
-// use waker_fn::waker_fn;
+use futures_lite::future::{block_on, join};
 
 #[bench]
 fn create(b: &mut Bencher) {
@@ -32,18 +30,22 @@ fn create_send_recv(b: &mut Bencher) {
     })
 }
 
-// #[bench]
-// fn create_wait_send_recv(b: &mut Bencher) {
-//     let fake_waker = waker_fn(|| ());
-//     b.iter(|| {
-//         let (send, mut recv) = oneshot::<bool>();
-//         block_on(async {
-//             let mut wait = send.wait();
-//             poll_once(&mut wait);
-//             poll_once(&mut recv);
-//             wait.await;
-//             send.send(true).unwrap();
-//             black_box(recv.await);
-//         });
-//     })
-// }
+#[bench]
+fn create_wait_send_recv(b: &mut Bencher) {
+    b.iter(|| {
+        let (send, recv) = oneshot::<bool>();
+        block_on(async {
+            black_box(
+                block_on(
+                    join(
+                        async {
+                            let send = send.wait().await.unwrap();
+                            send.send(true).unwrap()
+                        },
+                        async { recv.await.unwrap() }
+                    )
+                )
+            );
+        });
+    })
+}
