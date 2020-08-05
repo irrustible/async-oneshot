@@ -1,10 +1,12 @@
 #![no_std]
 extern crate alloc;
 use alloc::sync::Arc;
-use core::future::Future;
+use futures_lite::{Future, future::poll_fn};
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 use ping_pong_cell::PingPongCell;
+
+mod delay;
 
 pub fn oneshot<T: Send>() -> (Sender<T>, Receiver<T>) {
     let inner = Arc::new(Inner { cell: PingPongCell::new(None) });
@@ -13,8 +15,10 @@ pub fn oneshot<T: Send>() -> (Sender<T>, Receiver<T>) {
     (sender, receiver)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Closed();
 
+#[derive(Debug)]
 pub enum WaitError {
     AlreadyAwaited(Waker),
 }
@@ -28,6 +32,33 @@ impl<T: Send> Sender<T> {
 
     /// Closes the channel by causing an immediate drop
     pub fn close(self) { }
+
+    /// Waits for a Receiver to be waiting for us to send something
+    /// (i.e. allows you to produce a value to send on demand).
+    pub async fn wait(self) -> Result<Self, Closed> {
+        while let Some(ref inner) = &self.inner {
+            let wake_me = poll_fn(|c| Poll::Ready(c.waker().clone())).await;
+            let ret = inner.cell.transact(|state| {
+                match state.take() {
+                    Some(State::Closed) => Poll::Ready(Err(Closed())),
+                    Some(State::Waker(waker)) => {
+                        *state = Some(State::Waker(waker));
+                        Poll::Ready(Ok(()))
+                    }
+                    _ => {
+                        *state = Some(State::Waker(wake_me));
+                        Poll::Pending
+                    }
+                }
+            });
+            match ret {
+                Poll::Pending => delay::delay().await,
+                Poll::Ready(Ok(())) => { return Ok(self); }
+                Poll::Ready(Err(Closed())) => {return Err(Closed()); }
+            }
+        }
+        Err(Closed())
+    }
 
     /// Sends a message on the channel
     pub fn send(self, value: T) -> Result<(), Closed> {
@@ -64,10 +95,8 @@ pub struct Receiver<T: Send> {
 }
 
 impl<T: Send> Receiver<T> {
-
     /// Closes the channel by causing an immediate drop
     pub fn close(self) { }
-
 }
 
 enum State<T> {
@@ -126,27 +155,6 @@ impl<T: Send> Drop for Receiver<T> {
     }
 }
 
-impl<T: Send> Future for Sender<T> {
-    type Output = Result<Waker, Closed>;
-    fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Self::Output> {
-        let this = Pin::into_inner(self);
-        if let Some(inner) = &this.inner {
-            inner.cell.transact(|state| {
-                match state.take() {
-                    Some(State::Waker(waker)) => Poll::Ready(Ok(waker)),
-                    Some(State::Closed) => Poll::Ready(Err(Closed())),
-                    _ => {
-                        *state = Some(State::Waker(context.waker().clone()));
-                        Poll::Pending
-                    }
-                }
-            })
-        } else {
-            Poll::Ready(Err(Closed()))
-        }
-    }
-}
-
 impl<T: Send> Future for Receiver<T> {
     type Output = Result<T, Closed>;
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Result<T, Closed>> {
@@ -172,11 +180,3 @@ impl<T: Send> Future for Receiver<T> {
         }
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     #[test]
-//     fn it_works() {
-//         assert_eq!(2 + 2, 4);
-//     }
-// }
