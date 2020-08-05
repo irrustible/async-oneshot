@@ -1,15 +1,20 @@
 [package]
 name = "async-oneshot"
-version = "0.1.0"
+version = "0.2.0"
+description = "A fast, small async-aware oneshot channel."
+keywords = ["oneshot", "channel"]
+categories = ["asynchronous", "concurrency", "data-structures"]
 authors = ["James Laver <james.laver@gmail.com>"]
+homepage = "https://github.com/irrustible/async-oneshot"
+repository = "https://github.com/irrustible/async-oneshot"
+documentation = "https://docs.rs/async-oneshot"
+license = "MPL-2.0"
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+readme = "README.md"
 
 [dependencies]
 futures-lite="0.1"
-# ping-pong-cell = { git = "https://github.com/irrustible/ping-pong-cell", branch = "main" }
-ping-pong-cell = { path = "../ping-pong-cell" }
+ping-pong-cell = "0.1"
 
 # [dev-dependencies]
 # waker-fn = "1"
