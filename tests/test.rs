@@ -1,6 +1,7 @@
 use async_oneshot::*;
 use futures_lite::*;
 use std::thread::spawn;
+use std::mem::drop;
 
 #[test]
 fn success_one_thread() {
@@ -12,14 +13,14 @@ fn success_one_thread() {
 #[test]
 fn close_sender_one_thread() {
     let (s, r) = oneshot::<bool>();
-    s.close();
+    drop(s);
     assert_eq!(Err(Closed()), future::block_on(r));
 }
 
 #[test]
 fn close_receiver_one_thread() {
     let (s, r) = oneshot::<bool>();
-    r.close();
+    drop(r);
     assert_eq!(Err(Closed()), s.send(true));
 }
 
@@ -35,7 +36,7 @@ fn success_two_threads() {
 fn close_sender_two_threads() {
     let (s, r) = oneshot::<bool>();
     let j = spawn(|| future::block_on(r));
-    s.close();
+    drop(s);
     assert_eq!(Err(Closed()), j.join().unwrap());
 }
 

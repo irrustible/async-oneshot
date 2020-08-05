@@ -39,9 +39,6 @@ pub struct Sender<T: Send> {
 
 // Can be polled as a Future to wait for a receiver to be listening.
 impl<T: Send> Sender<T> {
-    /// Closes the channel by causing an immediate drop
-    pub fn close(self) {}
-
     /// Waits for a Receiver to be waiting for us to send something
     /// (i.e. allows you to produce a value to send on demand).
     pub async fn wait(self) -> Result<Self, Closed> {
@@ -89,11 +86,6 @@ impl<T: Send> Sender<T> {
 
 pub struct Receiver<T: Send> {
     inner: Arc<Inner<T>>,
-}
-
-impl<T: Send> Receiver<T> {
-    /// Closes the channel by causing an immediate drop
-    pub fn close(self) {}
 }
 
 impl<T: Send> Drop for Sender<T> {
