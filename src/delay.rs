@@ -6,7 +6,7 @@ pub fn delay() -> Delay {
     Delay { done: false }
 }
 pub struct Delay {
-    done: bool
+    done: bool,
 }
 
 impl Future for Delay {

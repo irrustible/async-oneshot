@@ -1,9 +1,9 @@
 #![feature(test)]
 
 extern crate test;
-use test::{black_box, Bencher};
 use async_oneshot::*;
 use futures_lite::future::{block_on, join};
+use test::{black_box, Bencher};
 
 #[bench]
 fn create(b: &mut Bencher) {
@@ -35,17 +35,13 @@ fn create_wait_send_recv(b: &mut Bencher) {
     b.iter(|| {
         let (send, recv) = oneshot::<bool>();
         block_on(async {
-            black_box(
-                block_on(
-                    join(
-                        async {
-                            let send = send.wait().await.unwrap();
-                            send.send(true).unwrap()
-                        },
-                        async { recv.await.unwrap() }
-                    )
-                )
-            );
+            black_box(block_on(join(
+                async {
+                    let send = send.wait().await.unwrap();
+                    send.send(true).unwrap()
+                },
+                async { recv.await.unwrap() },
+            )));
         });
     })
 }
