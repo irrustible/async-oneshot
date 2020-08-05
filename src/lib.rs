@@ -54,7 +54,8 @@ impl<T: Send> Sender<T> {
                     *state = Some(State::Waker(waker));
                     Poll::Ready(Ok(()))
                 }
-                _ => {
+                Some(State::Ready(_)) => unreachable!(),
+                None => {
                     *state = Some(State::Waker(wake_me));
                     Poll::Pending
                 }
