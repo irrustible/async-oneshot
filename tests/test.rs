@@ -14,14 +14,14 @@ fn success_one_thread() {
 fn close_sender_one_thread() {
     let (s, r) = oneshot::<bool>();
     drop(s);
-    assert_eq!(Err(Closed()), future::block_on(r));
+    assert_eq!(Err(Closed), future::block_on(r));
 }
 
 #[test]
 fn close_receiver_one_thread() {
     let (s, r) = oneshot::<bool>();
     drop(r);
-    assert_eq!(Err(Closed()), s.send(true));
+    assert_eq!(Err(Closed), s.send(true));
 }
 
 #[test]
@@ -37,7 +37,7 @@ fn close_sender_two_threads() {
     let (s, r) = oneshot::<bool>();
     let j = spawn(|| future::block_on(r));
     drop(s);
-    assert_eq!(Err(Closed()), j.join().unwrap());
+    assert_eq!(Err(Closed), j.join().unwrap());
 }
 
 #[test]

@@ -26,12 +26,7 @@ pub fn oneshot<T: Send>() -> (Sender<T>, Receiver<T>) {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Closed();
-
-#[derive(Debug)]
-pub enum WaitError {
-    AlreadyAwaited(Waker),
-}
+pub struct Closed;
 
 pub struct Sender<T: Send> {
     inner: Arc<Inner<T>>,
@@ -49,7 +44,7 @@ impl<T: Send> Sender<T> {
         loop {
             let wake_me = poll_fn(|c| Poll::Ready(c.waker().clone())).await;
             let ret = self.inner.transact(|state| match state.take() {
-                Some(State::Closed) => Poll::Ready(Err(Closed())),
+                Some(State::Closed) => Poll::Ready(Err(Closed)),
                 Some(State::Waker(waker)) => {
                     *state = Some(State::Waker(waker));
                     Poll::Ready(Ok(()))
@@ -72,7 +67,7 @@ impl<T: Send> Sender<T> {
         self.inner
             .transact(|state| {
                 match state.take() {
-                    Some(State::Closed) => Err(Closed()),
+                    Some(State::Closed) => Err(Closed),
                     Some(State::Waker(waker)) => Ok(Some(waker)),
                     _ => Ok(None),
                 }
@@ -132,7 +127,7 @@ impl<T: Send> Future for Receiver<T> {
     fn poll(self: Pin<&mut Self>, context: &mut Context) -> Poll<Result<T, Closed>> {
         let this = Pin::into_inner(self);
         this.inner.transact(|state| match state.take() {
-            Some(State::Closed) => Poll::Ready(Err(Closed())),
+            Some(State::Closed) => Poll::Ready(Err(Closed)),
             Some(State::Ready(value)) => Poll::Ready(Ok(value)),
             Some(State::Waker(waker)) => {
                 *state = Some(State::Waker(context.waker().clone()));
