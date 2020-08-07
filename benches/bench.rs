@@ -16,7 +16,7 @@ fn create(b: &mut Bencher) {
 fn create_send(b: &mut Bencher) {
     b.iter(|| {
         let (send, recv) = oneshot::<bool>();
-        send.send(true).unwrap();
+        black_box(send.send(true).unwrap());
         black_box(recv)
     })
 }
@@ -25,8 +25,8 @@ fn create_send(b: &mut Bencher) {
 fn create_send_recv(b: &mut Bencher) {
     b.iter(|| {
         let (send, recv) = oneshot::<bool>();
-        send.send(true).unwrap();
-        block_on(recv).unwrap();
+        black_box(send.send(true).unwrap());
+        black_box(block_on(recv).unwrap());
     })
 }
 
@@ -34,18 +34,16 @@ fn create_send_recv(b: &mut Bencher) {
 fn create_wait_send_recv(b: &mut Bencher) {
     b.iter(|| {
         let (send, recv) = oneshot::<bool>();
-        block_on(async {
-            black_box(
-                block_on(
-                    join(
-                        async {
-                            let send = send.wait().await.unwrap();
-                            send.send(true).unwrap()
-                        },
-                        async { recv.await.unwrap() }
-                    )
+        black_box(
+            block_on(
+                join(
+                    async {
+                        let send = send.wait().await.unwrap();
+                        send.send(true).unwrap()
+                    },
+                    async { recv.await.unwrap() }
                 )
-            );
-        });
-    })
+            )
+        );
+    });
 }
