@@ -8,8 +8,9 @@ A fast and small async-aware oneshot channel.
 
 Features:
 
-* Fast and small.
-* Complete `no_std` support.
+* Fast and small, with easy to understand code.
+* Only two deps, both mine and without further deps.
+* Complete `no_std` support, no heap allocation.
 
 ## Usage
 
