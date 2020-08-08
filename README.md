@@ -8,6 +8,7 @@ A fast and small async-aware oneshot channel.
 
 Features:
 
+* Sender may wait for a receiver to be waiting.
 * Fast and small, with easy to understand code.
 * Only two dependencies, both mine and with no deps.
 * Complete `no_std` support (with `alloc` for `Arc`).

@@ -1,6 +1,6 @@
 [package]
 name = "async-oneshot"
-version = "0.2.0"
+version = "0.3.0"
 description = "A fast, small, full-featured async-aware oneshot channel."
 keywords = ["oneshot", "channel"]
 categories = ["asynchronous", "concurrency", "data-structures"]
@@ -13,10 +13,8 @@ edition = "2018"
 readme = "README.md"
 
 [dependencies]
-ping-pong-cell = "0.1.1"
 # futures-micro = "0.1"
 futures-micro = { git = "https://github.com/irrustible/futures-micro", branch = "main" }
-# futures-micro = { path = "../futures-micro"}
 
 [dev-dependencies]
 futures-lite="0.1"
