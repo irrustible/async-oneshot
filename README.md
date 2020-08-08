@@ -42,6 +42,11 @@ The measurement overhead seems to be a huge part of these times.
 Yes, this crate uses unsafe. 10 times. Not all of it is performance
 gaming. Please audit carefully!
 
+# See Also
+
+* [async-oneshot-local](https://github.com/irrustible/async-oneshot-local) (single threaded)
+* [async-channel](https://github.com/stjepang/async-channel) (MPMC)
+
 ## Copyright and License
 
 Copyright (c) 2020 James Laver, async-oneshot contributors.
