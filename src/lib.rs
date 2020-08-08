@@ -6,10 +6,6 @@
 #![no_std]
 extern crate alloc;
 use alloc::sync::Arc;
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, Poll, Waker};
-use futures_micro::*;
 
 mod inner;
 pub(crate) use inner::Inner;
@@ -35,10 +31,9 @@ pub struct Closed();
 /// We couldn't receive a message.
 #[derive(Debug)]
 pub enum TryRecvError<T> {
-    NotReady(Receiver<T>),
+    /// The Sender didn't send us a message yet.
+    Empty(Receiver<T>),
+    /// The Sender has dropped.
     Closed,
 }
 
-pub(crate) fn maybe_wake(maybe: Option<Waker>) {
-    if let Some(waker) = maybe { waker.wake(); }
-}

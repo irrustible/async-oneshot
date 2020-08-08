@@ -1,5 +1,7 @@
 use crate::*;
 use alloc::sync::Arc;
+use core::task::Poll;
+use futures_micro::poll_state;
 
 /// The sending half of a oneshot channel.
 #[derive(Debug)]
@@ -18,49 +20,44 @@ impl<T> Sender<T> {
     pub fn close(self) { }
 
     /// true if the channel is closed
-    pub fn is_closed(&self) -> bool { self.inner.state().is_closed() }
+    pub fn is_closed(&self) -> bool { self.inner.state().closed() }
 
     /// Waits for a Receiver to be waiting for us to send something
     /// (i.e. allows you to produce a value to send on demand).
     /// Fails if the Receiver is dropped.
-    pub async fn wait(mut self) -> Result<Self, Closed> {
-        loop {
-            if self.done {
-                return Err(Closed())
+    pub async fn wait(self) -> Result<Self, Closed> {
+        poll_state(Some(self), |this, ctx| {
+            let mut that = this.take().unwrap();
+            let state = that.inner.state();
+            if state.closed() {
+                that.done = true;
+                Poll::Ready(Err(Closed()))
+            } else if state.recv() {
+                that.done = true;
+                Poll::Ready(Ok(that))
             } else {
-                let wake_me = waker().await;
-                let state = self.inner.state();
-                if state.is_closed() {
-                    self.done = true;
-                    return Err(Closed())
-                } else if state.is_recv() {
-                    return Ok(self);
-                } else {
-                    self.inner.set_send(Some(wake_me));
-                    sleep().await; // Wait for the waker to be used
-                }
+                that.inner.set_send(ctx.waker().clone());
+                *this = Some(that);
+                Poll::Pending
             }
-        }
+        }).await
     }
 
     /// Sends a message on the channel. Fails if the Receiver is dropped.
     pub fn send(mut self, value: T) -> Result<(), Closed> {
-        if self.done {
-            Err(Closed())
-        } else {
-            self.done = true;
-            let state = self.inner.state();
-            if state.is_closed() {
-                Err(Closed())
+        self.done = true;
+        let inner = &mut self.inner;
+        let state = inner.set_value(value);
+        if !state.closed() {
+            if state.recv() {
+                inner.recv().wake_by_ref();
+                Ok(())
             } else {
-                let waker = if state.is_recv() { self.inner.recv() } else { None };
-                if self.inner.set_value(value).is_closed() {
-                    Err(Closed())
-                } else {
-                    maybe_wake(waker);
-                    Ok(())
-                }
+                Ok(())
             }
+        } else {
+            inner.take_value(); // force drop.
+            Err(Closed())
         }
     }        
 }
@@ -69,10 +66,10 @@ impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
         if !self.done {
             let state = self.inner.state();
-            if !state.is_closed() {
+            if !state.closed() {
                 let old = self.inner.close();
-                if old.is_recv() { maybe_wake(self.inner.recv()) }
-            }
+                if old.recv() { self.inner.recv().wake_by_ref(); }
+            }            
         }
     }
 }

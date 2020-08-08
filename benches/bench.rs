@@ -17,7 +17,7 @@ fn create_send(b: &mut Bencher) {
     b.iter(|| {
         let (send, recv) = oneshot::<bool>();
         black_box(send.send(true).unwrap());
-        black_box(recv)
+        black_box(recv);
     })
 }
 

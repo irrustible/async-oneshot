@@ -1,4 +1,7 @@
 use crate::*;
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 /// The receiving half of a oneshot channel.
 #[derive(Debug)]
@@ -19,19 +22,15 @@ impl<T> Receiver<T> {
     /// Attempts to receive. On failure, if the channel is not closed,
     /// returns self to try again.
     pub fn try_recv(mut self) -> Result<T, TryRecvError<T>> {
-        if self.done {
+        let state = self.inner.state();
+        if state.ready() {
+            self.done = true;
+            Ok(self.inner.take_value())
+        } else if state.closed() {
+            self.done = true;
             Err(TryRecvError::Closed)
         } else {
-            let state = self.inner.state();
-            if state.is_closed() {
-                self.done = true;
-                Err(TryRecvError::Closed)
-            } else if state.is_ready() {
-                self.done = true;
-                Ok(self.inner.take_value().unwrap())
-            } else {
-                Err(TryRecvError::NotReady(self))
-            }
+            Err(TryRecvError::Empty(self))
         }
     }
 }
@@ -42,29 +41,22 @@ impl<T> Future for Receiver<T> {
     type Output = Result<T, Closed>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<T, Closed>> {
         let this = Pin::into_inner(self);
-        if this.done {
+        let state = this.inner.state();
+        if state.ready() {
+            this.done = true;
+            Poll::Ready(Ok(this.inner.take_value()))
+        } else if state.closed() {
+            this.done = true;
             Poll::Ready(Err(Closed()))
         } else {
-            let state = this.inner.state();
-            if state.is_closed() {
+            let state = this.inner.set_recv(ctx.waker().clone());
+            if state.ready() {
                 this.done = true;
-                Poll::Ready(Err(Closed()))
-            } else if state.is_ready() {
-                this.done = true;
-                Poll::Ready(Ok(this.inner.take_value().unwrap()))
+                Poll::Ready(Ok(this.inner.take_value()))
             } else {
-                let state = this.inner.set_recv(Some(ctx.waker().clone()));
-                if state.is_closed() {
-                    this.done = true;
-                    Poll::Ready(Err(Closed()))
-                } else if state.is_ready() {
-                    this.done = true;
-                    Poll::Ready(Ok(this.inner.take_value().unwrap()))
-                } else {
-                    if state.is_send() { maybe_wake(this.inner.send()); }
-                    Poll::Pending
-                }                
-            }
+                if state.send() { this.inner.send().wake_by_ref(); }
+                Poll::Pending
+            }                
         }
     }
 }
@@ -73,9 +65,9 @@ impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         if !self.done {
             let state = self.inner.state();
-            if !state.is_closed() && !state.is_ready() {
+            if !state.closed() && !state.ready() {
                 let old = self.inner.close();
-                if old.is_recv() { maybe_wake(self.inner.send()) }
+                if old.recv() { self.inner.send().wake_by_ref(); }
             }
         }
     }

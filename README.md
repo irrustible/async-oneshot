@@ -9,8 +9,8 @@ A fast and small async-aware oneshot channel.
 Features:
 
 * Fast and small, with easy to understand code.
-* Only two deps, both mine and without further deps.
-* Complete `no_std` support (with `alloc` for Arc).
+* Only two dependencies, both mine and with no deps.
+* Complete `no_std` support (with `alloc` for `Arc`).
 
 ## Usage
 
@@ -28,13 +28,18 @@ fn success_one_thread() {
 Crap numbers from my shitty 2015 macbook pro:
 
 ```
-test create                ... bench:         127 ns/iter (+/- 16)
-test create_send           ... bench:         143 ns/iter (+/- 14)
-test create_send_recv      ... bench:         156 ns/iter (+/- 18)
-test create_wait_send_recv ... bench:         899 ns/iter (+/- 80)
+test create                ... bench:         122 ns/iter (+/- 12)
+test create_send           ... bench:         122 ns/iter (+/- 21)
+test create_send_recv      ... bench:         126 ns/iter (+/- 8)
+test create_wait_send_recv ... bench:         232 ns/iter (+/- 29)
 ```
 
-So even on this thing, 6.5 million create-send-receives a second?
+The measurement overhead seems to be a huge part of these times.
+
+## Note on safety
+
+Yes, this crate uses unsafe. 10 times. Not all of it is performance
+gaming. Please audit carefully!
 
 ## Copyright and License
 
