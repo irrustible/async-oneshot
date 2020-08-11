@@ -13,8 +13,7 @@ edition = "2018"
 readme = "README.md"
 
 [dependencies]
-# futures-micro = "0.1"
-futures-micro = { git = "https://github.com/irrustible/futures-micro", branch = "main" }
+futures-micro = "0.1.1"
 
 [dev-dependencies]
 futures-lite="0.1"
