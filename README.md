@@ -8,11 +8,10 @@ A fast and small async-aware oneshot channel.
 
 Features:
 
-* Sender may wait for a receiver to be waiting.
-* Fast and small, with one dependency
-  ([futures-micro](https://github.com/irrustible/futures-micro)) and a
-  blazing quick build.
+* Incredibly fast - comparable with `tokio` and much faster than `futures`.
+* Tiny code, only one dependency and a blazing quick build.
 * Complete `no_std` support (with `alloc` for `Arc`).
+* Unique feature: sender may wait for a receiver to be waiting.
 
 ## Usage
 
@@ -27,7 +26,11 @@ fn success_one_thread() {
 
 ## Performance
 
-Crap numbers from my shitty 2015 macbook pro:
+As of version 0.3.0, we're about even with `tokio`. We've always been
+somewhat faster than `futures`.
+
+Here are some crap benchmark numbers from my shitty 2015 macbook
+pro. 
 
 ```
 test create                ... bench:         122 ns/iter (+/- 12)
@@ -36,7 +39,9 @@ test create_send_recv      ... bench:         126 ns/iter (+/- 8)
 test create_wait_send_recv ... bench:         232 ns/iter (+/- 29)
 ```
 
-The measurement overhead seems to be a huge part of these times.
+Most of the time is actually taken up by measurement overhead and the
+last bench is probably benching `futures_lite::future::block_on` more
+than it's benching this library. We are, in short, very fast.
 
 ## Note on safety
 
