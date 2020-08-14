@@ -9,8 +9,9 @@ A fast and small async-aware oneshot channel.
 Features:
 
 * Sender may wait for a receiver to be waiting.
-* Fast and small, with easy to understand code.
-* Only two dependencies, both mine and with no deps.
+* Fast and small, with one dependency
+  ([futures-micro](https://github.com/irrustible/futures-micro)) and a
+  blazing quick build.
 * Complete `no_std` support (with `alloc` for `Arc`).
 
 ## Usage
