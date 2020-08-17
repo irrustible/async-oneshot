@@ -8,7 +8,7 @@ pub struct Inner<T> {
     // This one is easy.
     state: AtomicUsize,
     // This is where it all starts to go a bit wrong.
-    value: UnsafeCell<ManuallyDrop<MaybeUninit<T>>>,
+    value: UnsafeCell<MaybeUninit<T>>,
     // Yes, these are subtly different from the last just to confuse you.
     send: ManuallyDrop<UnsafeCell<MaybeUninit<Waker>>>,
     recv: ManuallyDrop<UnsafeCell<MaybeUninit<Waker>>>,
@@ -24,7 +24,7 @@ impl<T> Inner<T> {
     pub fn new() -> Self {
         Inner {
             state: AtomicUsize::new(0),
-            value: UnsafeCell::new(ManuallyDrop::new(MaybeUninit::uninit())),
+            value: UnsafeCell::new(MaybeUninit::uninit()),
             send: ManuallyDrop::new(UnsafeCell::new(MaybeUninit::uninit())),
             recv: ManuallyDrop::new(UnsafeCell::new(MaybeUninit::uninit())),
         }
@@ -60,7 +60,7 @@ impl<T> Inner<T> {
     }
 
     pub fn take_value(&self) -> T { // MUST BE SET
-        unsafe { ManuallyDrop::take(&mut *self.value.get()).assume_init() }
+        unsafe { (*self.value.get()).as_ptr().read() }
     }
 
     pub fn set_value(&self, value: T) -> State {
