@@ -1,5 +1,6 @@
 use core::cell::UnsafeCell;
-use core::mem::{ManuallyDrop, MaybeUninit};
+use core::mem::MaybeUninit;
+use core::ptr::drop_in_place;
 use core::sync::atomic::{AtomicUsize, Ordering::{Acquire, AcqRel}};
 use core::task::Waker;
 
@@ -10,8 +11,8 @@ pub struct Inner<T> {
     // This is where it all starts to go a bit wrong.
     value: UnsafeCell<MaybeUninit<T>>,
     // Yes, these are subtly different from the last just to confuse you.
-    send: ManuallyDrop<UnsafeCell<MaybeUninit<Waker>>>,
-    recv: ManuallyDrop<UnsafeCell<MaybeUninit<Waker>>>,
+    send: UnsafeCell<MaybeUninit<Waker>>,
+    recv: UnsafeCell<MaybeUninit<Waker>>,
 }
 
 const CLOSED: usize = 0b1000;
@@ -25,8 +26,8 @@ impl<T> Inner<T> {
         Inner {
             state: AtomicUsize::new(0),
             value: UnsafeCell::new(MaybeUninit::uninit()),
-            send: ManuallyDrop::new(UnsafeCell::new(MaybeUninit::uninit())),
-            recv: ManuallyDrop::new(UnsafeCell::new(MaybeUninit::uninit())),
+            send: UnsafeCell::new(MaybeUninit::uninit()),
+            recv: UnsafeCell::new(MaybeUninit::uninit()),
         }
     }
 
@@ -80,10 +81,10 @@ impl<T> Drop for Inner<T> {
         let state = State(*self.state.get_mut());
         // Drop the wakers if they are present
         if state.recv() {
-            unsafe { ManuallyDrop::take(&mut self.recv).into_inner().assume_init(); }
+            unsafe { drop_in_place((&mut *self.recv.get()).as_mut_ptr()); }
         }
         if state.send() {
-            unsafe { ManuallyDrop::take(&mut self.send).into_inner().assume_init(); }
+            unsafe { drop_in_place((&mut *self.send.get()).as_mut_ptr()); }
         }
     }
 }
@@ -103,4 +104,4 @@ impl State {
 
     pub fn recv(&self)   -> bool { (self.0 & RECV) == RECV }
 
-}    
+}
