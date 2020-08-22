@@ -1,6 +1,6 @@
 [package]
 name = "async-oneshot"
-version = "0.3.0"
+version = "0.3.1"
 description = "A fast, small, full-featured async-aware oneshot channel."
 keywords = ["oneshot", "channel"]
 categories = ["asynchronous", "concurrency", "data-structures"]
