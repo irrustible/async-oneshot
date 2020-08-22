@@ -8,7 +8,7 @@ A fast and small async-aware oneshot channel.
 
 Features:
 
-* Incredibly fast - comparable with `tokio` and much faster than `futures`.
+* Probably the fastest oneshot channel in the world (see 'Performance')
 * Tiny code, only one dependency and a blazing quick build.
 * Complete `no_std` support (with `alloc` for `Arc`).
 * Unique feature: sender may wait for a receiver to be waiting.
@@ -26,11 +26,16 @@ fn success_one_thread() {
 
 ## Performance
 
-As of version 0.3.0, we're about even with `tokio`. We've always been
-somewhat faster than `futures`.
+Here are benchmark numbers on my Ryzen 9 3900X:
 
-Here are some crap benchmark numbers from my shitty 2015 macbook
-pro. 
+```
+test create                ... bench:          59 ns/iter (+/- 0)
+test create_send           ... bench:          58 ns/iter (+/- 0)
+test create_send_recv      ... bench:          44 ns/iter (+/- 0)
+test create_wait_send_recv ... bench:         113 ns/iter (+/- 3)
+```
+
+Here are the same benchmarks on my 2015 macbook pro:
 
 ```
 test create                ... bench:         122 ns/iter (+/- 12)
@@ -41,7 +46,15 @@ test create_wait_send_recv ... bench:         232 ns/iter (+/- 29)
 
 Most of the time is actually taken up by measurement overhead and the
 last bench is probably benching `futures_lite::future::block_on` more
-than it's benching this library. We are, in short, very fast.
+than it's benching this library. We are, in short, very fast. 
+
+### Compared to other libraries
+
+The oneshot channel in `futures` isn't very fast by comparison.
+
+Tokio put up an excellent fight and made us work hard to improve. In
+general I'd say we're slightly faster overall, but it's incredibly
+tight.
 
 ## Note on safety
 
