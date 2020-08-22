@@ -29,10 +29,10 @@ fn success_one_thread() {
 Here are benchmark numbers on my Ryzen 9 3900X:
 
 ```
-test create                ... bench:          59 ns/iter (+/- 0)
-test create_send           ... bench:          58 ns/iter (+/- 0)
-test create_send_recv      ... bench:          44 ns/iter (+/- 0)
-test create_wait_send_recv ... bench:         113 ns/iter (+/- 3)
+test create                ... bench:          56 ns/iter (+/- 2)
+test create_send           ... bench:          55 ns/iter (+/- 5)
+test create_send_recv      ... bench:          42 ns/iter (+/- 0)
+test create_wait_send_recv ... bench:         109 ns/iter (+/- 3)
 ```
 
 Here are the same benchmarks on my 2015 macbook pro:

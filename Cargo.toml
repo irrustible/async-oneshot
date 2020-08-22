@@ -13,7 +13,7 @@ edition = "2018"
 readme = "README.md"
 
 [dependencies]
-futures-micro = "0.1.1"
+futures-micro = "0.2"
 
 [dev-dependencies]
 futures-lite="0.1"
