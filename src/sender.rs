@@ -33,7 +33,6 @@ impl<T> Sender<T> {
                 that.done = true;
                 Poll::Ready(Err(Closed()))
             } else if state.recv() {
-                that.done = true;
                 Poll::Ready(Ok(that))
             } else {
                 that.inner.set_send(ctx.waker().clone());
