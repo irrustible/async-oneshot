@@ -67,7 +67,7 @@ impl<T> Drop for Receiver<T> {
             let state = self.inner.state();
             if !state.closed() && !state.ready() {
                 let old = self.inner.close();
-                if old.recv() { self.inner.send().wake_by_ref(); }
+                if old.send() { self.inner.send().wake_by_ref(); }
             }
         }
     }
