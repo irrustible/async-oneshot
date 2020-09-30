@@ -102,6 +102,7 @@ impl<T> Drop for Inner<T> {
 unsafe impl<T: Send> Send for Inner<T> {}
 unsafe impl<T: Sync> Sync for Inner<T> {}
 
+#[derive(Clone, Copy)]
 pub struct State(u8);
 
 impl State {

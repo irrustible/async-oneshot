@@ -33,6 +33,16 @@ impl<T> Receiver<T> {
             Err(TryRecvError::Closed)
         }
     }
+
+    fn handle_state(inner: &Inner<T>, state: crate::inner::State) -> Poll<Result<T, Closed>> {
+        if state.ready() {
+            Poll::Ready(Ok(inner.take_value()))
+        } else if state.closed() {
+            Poll::Ready(Err(Closed()))
+        } else {
+            Poll::Pending
+        }
+    }
 }
 
 impl<T> Future for Receiver<T> {
@@ -43,23 +53,20 @@ impl<T> Future for Receiver<T> {
             Some(x) => x,
             None => return Poll::Ready(Err(Closed())),
         };
-        let state = inner.state();
-        if state.ready() {
-            Poll::Ready(Ok(inner.take_value()))
-        } else if state.closed() {
-            Poll::Ready(Err(Closed()))
-        } else {
-            let state = inner.set_recv(ctx.waker().clone());
-            if state.ready() {
-                Poll::Ready(Ok(inner.take_value()))
-            } else {
-                if state.send() {
-                    inner.send().wake_by_ref();
-                }
-                this.x = Some(inner);
-                Poll::Pending
-            }
+        match Self::handle_state(&inner, inner.state()) {
+            Poll::Pending => {}
+            x => return x,
         }
+        let state = inner.set_recv(ctx.waker().clone());
+        match Self::handle_state(&inner, state) {
+            Poll::Pending => {}
+            x => return x,
+        }
+        if state.send() {
+            inner.send().wake_by_ref();
+        }
+        this.x = Some(inner);
+        Poll::Pending
     }
 }
 
