@@ -20,8 +20,7 @@ impl<T> Receiver<T> {
     /// Attempts to receive. On failure, if the channel is not closed,
     /// returns self to try again.
     pub fn try_recv(mut self) -> Result<T, TryRecvError<T>> {
-        let x = self.x.take();
-        if let Some(x) = x {
+        if let Some(x) = self.x.take() {
             let state = x.state();
             if state.ready() {
                 Ok(x.take_value())
@@ -40,23 +39,24 @@ impl<T> Future for Receiver<T> {
     type Output = Result<T, Closed>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<T, Closed>> {
         let this = Pin::into_inner(self);
-        let this = match &mut this.x {
+        let inner = match this.x.take() {
             Some(x) => x,
             None => return Poll::Ready(Err(Closed())),
         };
-        let state = this.state();
+        let state = inner.state();
         if state.ready() {
-            Poll::Ready(Ok(this.take_value()))
+            Poll::Ready(Ok(inner.take_value()))
         } else if state.closed() {
             Poll::Ready(Err(Closed()))
         } else {
-            let state = this.set_recv(ctx.waker().clone());
+            let state = inner.set_recv(ctx.waker().clone());
             if state.ready() {
-                Poll::Ready(Ok(this.take_value()))
+                Poll::Ready(Ok(inner.take_value()))
             } else {
                 if state.send() {
-                    this.send().wake_by_ref();
+                    inner.send().wake_by_ref();
                 }
+                this.x = Some(inner);
                 Poll::Pending
             }
         }
