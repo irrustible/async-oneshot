@@ -11,16 +11,17 @@ pub struct Sender<T> {
 }
 
 impl<T> Sender<T> {
-
     pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
         Sender { inner, done: false }
     }
-        
+
     /// Closes the channel by causing an immediate drop
-    pub fn close(self) { }
+    pub fn close(self) {}
 
     /// true if the channel is closed
-    pub fn is_closed(&self) -> bool { self.inner.state().closed() }
+    pub fn is_closed(&self) -> bool {
+        self.inner.state().closed()
+    }
 
     /// Waits for a Receiver to be waiting for us to send something
     /// (i.e. allows you to produce a value to send on demand).
@@ -39,7 +40,8 @@ impl<T> Sender<T> {
                 *this = Some(that);
                 Poll::Pending
             }
-        }).await
+        })
+        .await
     }
 
     /// Sends a message on the channel. Fails if the Receiver is dropped.
@@ -58,7 +60,7 @@ impl<T> Sender<T> {
             inner.take_value(); // force drop.
             Err(Closed())
         }
-    }        
+    }
 }
 
 impl<T> Drop for Sender<T> {
@@ -67,8 +69,10 @@ impl<T> Drop for Sender<T> {
             let state = self.inner.state();
             if !state.closed() {
                 let old = self.inner.close();
-                if old.recv() { self.inner.recv().wake_by_ref(); }
-            }            
+                if old.recv() {
+                    self.inner.recv().wake_by_ref();
+                }
+            }
         }
     }
 }

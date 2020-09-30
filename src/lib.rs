@@ -36,4 +36,3 @@ pub enum TryRecvError<T> {
     /// The Sender has dropped.
     Closed,
 }
-

@@ -1,7 +1,10 @@
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::ptr::drop_in_place;
-use core::sync::atomic::{AtomicUsize, Ordering::{Acquire, AcqRel}};
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering::{AcqRel, Acquire},
+};
 use core::task::Waker;
 
 #[derive(Debug)]
@@ -16,12 +19,11 @@ pub struct Inner<T> {
 }
 
 const CLOSED: usize = 0b1000;
-const SEND: usize   = 0b0100;
-const RECV: usize   = 0b0010;
-const READY: usize  = 0b0001;
+const SEND: usize = 0b0100;
+const RECV: usize = 0b0010;
+const READY: usize = 0b0001;
 
 impl<T> Inner<T> {
-
     pub fn new() -> Self {
         Inner {
             state: AtomicUsize::new(0),
@@ -32,11 +34,14 @@ impl<T> Inner<T> {
     }
 
     // Gets the current state
-    pub fn state(&self) -> State { State(self.state.load(Acquire)) }
+    pub fn state(&self) -> State {
+        State(self.state.load(Acquire))
+    }
 
     // Gets the receiver's waker. You *must* check the state to ensure
     // it is set. This would be unsafe if it were public.
-    pub fn recv(&self) -> &Waker { // MUST BE SET
+    pub fn recv(&self) -> &Waker {
+        // MUST BE SET
         unsafe { &*(*self.recv.get()).as_ptr() }
     }
 
@@ -60,7 +65,8 @@ impl<T> Inner<T> {
         State(self.state.fetch_or(SEND, AcqRel))
     }
 
-    pub fn take_value(&self) -> T { // MUST BE SET
+    pub fn take_value(&self) -> T {
+        // MUST BE SET
         unsafe { (*self.value.get()).as_ptr().read() }
     }
 
@@ -73,7 +79,6 @@ impl<T> Inner<T> {
     pub fn close(&self) -> State {
         State(self.state.fetch_or(CLOSED, AcqRel))
     }
-
 }
 
 impl<T> Drop for Inner<T> {
@@ -81,10 +86,14 @@ impl<T> Drop for Inner<T> {
         let state = State(*self.state.get_mut());
         // Drop the wakers if they are present
         if state.recv() {
-            unsafe { drop_in_place((&mut *self.recv.get()).as_mut_ptr()); }
+            unsafe {
+                drop_in_place((&mut *self.recv.get()).as_mut_ptr());
+            }
         }
         if state.send() {
-            unsafe { drop_in_place((&mut *self.send.get()).as_mut_ptr()); }
+            unsafe {
+                drop_in_place((&mut *self.send.get()).as_mut_ptr());
+            }
         }
     }
 }
@@ -95,13 +104,19 @@ unsafe impl<T: Sync> Sync for Inner<T> {}
 pub struct State(usize);
 
 impl State {
+    pub fn closed(&self) -> bool {
+        (self.0 & CLOSED) == CLOSED
+    }
 
-    pub fn closed(&self) -> bool { (self.0 & CLOSED) == CLOSED }
+    pub fn ready(&self) -> bool {
+        (self.0 & READY) == READY
+    }
 
-    pub fn ready(&self)  -> bool { (self.0 & READY) == READY }
+    pub fn send(&self) -> bool {
+        (self.0 & SEND) == SEND
+    }
 
-    pub fn send(&self)   -> bool { (self.0 & SEND) == SEND }
-
-    pub fn recv(&self)   -> bool { (self.0 & RECV) == RECV }
-
+    pub fn recv(&self) -> bool {
+        (self.0 & RECV) == RECV
+    }
 }

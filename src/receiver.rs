@@ -11,13 +11,12 @@ pub struct Receiver<T> {
 }
 
 impl<T> Receiver<T> {
-
     pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
         Receiver { inner, done: false }
     }
 
     /// Closes the channel by causing an immediate drop.
-    pub fn close(self) { }
+    pub fn close(self) {}
 
     /// Attempts to receive. On failure, if the channel is not closed,
     /// returns self to try again.
@@ -34,8 +33,6 @@ impl<T> Receiver<T> {
         }
     }
 }
-
-
 
 impl<T> Future for Receiver<T> {
     type Output = Result<T, Closed>;
@@ -54,9 +51,11 @@ impl<T> Future for Receiver<T> {
                 this.done = true;
                 Poll::Ready(Ok(this.inner.take_value()))
             } else {
-                if state.send() { this.inner.send().wake_by_ref(); }
+                if state.send() {
+                    this.inner.send().wake_by_ref();
+                }
                 Poll::Pending
-            }                
+            }
         }
     }
 }
@@ -67,7 +66,9 @@ impl<T> Drop for Receiver<T> {
             let state = self.inner.state();
             if !state.closed() && !state.ready() {
                 let old = self.inner.close();
-                if old.send() { self.inner.send().wake_by_ref(); }
+                if old.send() {
+                    self.inner.send().wake_by_ref();
+                }
             }
         }
     }
