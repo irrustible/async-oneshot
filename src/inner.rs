@@ -1,11 +1,11 @@
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering::{AcqRel, Acquire};
 use core::{cell::UnsafeCell, mem::MaybeUninit, ptr::drop_in_place, task::Waker};
 
 #[derive(Debug)]
 pub struct Inner<T> {
     // This one is easy.
-    state: AtomicUsize,
+    state: AtomicU8,
     // This is where it all starts to go a bit wrong.
     value: UnsafeCell<MaybeUninit<T>>,
     // Yes, these are subtly different from the last just to confuse you.
@@ -13,15 +13,15 @@ pub struct Inner<T> {
     recv: UnsafeCell<MaybeUninit<Waker>>,
 }
 
-const CLOSED: usize = 0b1000;
-const SEND: usize = 0b0100;
-const RECV: usize = 0b0010;
-const READY: usize = 0b0001;
+const CLOSED: u8 = 0b1000;
+const SEND: u8 = 0b0100;
+const RECV: u8 = 0b0010;
+const READY: u8 = 0b0001;
 
 impl<T> Inner<T> {
     pub fn new() -> Self {
         Inner {
-            state: AtomicUsize::new(0),
+            state: AtomicU8::new(0),
             value: UnsafeCell::new(MaybeUninit::uninit()),
             send: UnsafeCell::new(MaybeUninit::uninit()),
             recv: UnsafeCell::new(MaybeUninit::uninit()),
@@ -96,7 +96,7 @@ impl<T> Drop for Inner<T> {
 unsafe impl<T: Send> Send for Inner<T> {}
 unsafe impl<T: Sync> Sync for Inner<T> {}
 
-pub struct State(usize);
+pub struct State(u8);
 
 impl State {
     pub fn closed(&self) -> bool {
