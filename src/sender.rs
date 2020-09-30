@@ -22,14 +22,6 @@ impl<T> Sender<T> {
         self.inner.state().closed()
     }
 
-    fn destructure(self) -> Arc<Inner<T>> {
-        // we extract the $inner ptr from $self without calling Drop
-        // and without leaking memory
-        let inner = unsafe { core::ptr::read(&self.inner) };
-        core::mem::forget(self);
-        inner
-    }
-
     /// Waits for a Receiver to be waiting for us to send something
     /// (i.e. allows you to produce a value to send on demand).
     /// Fails if the Receiver is dropped.
@@ -38,7 +30,9 @@ impl<T> Sender<T> {
             let that = this.take().unwrap();
             let state = that.inner.state();
             if state.closed() {
-                that.destructure();
+                // normally, we would want to avoid calling the Drop impl,
+                // but bc we check for !state.closed() in the Drop impl,
+                // we don't need to
                 Poll::Ready(Err(Closed()))
             } else if state.recv() {
                 Poll::Ready(Ok(that))
@@ -53,12 +47,16 @@ impl<T> Sender<T> {
 
     /// Sends a message on the channel. Fails if the Receiver is dropped.
     pub fn send(self, value: T) -> Result<(), Closed> {
-        let inner = self.destructure();
+        let inner = &self.inner;
         let state = inner.set_value(value);
         if !state.closed() {
             if state.recv() {
                 inner.recv().wake_by_ref();
             }
+            // make sure Sender::drop isn't called,
+            // but .inner should be freed regardless of that
+            let _inner_owned: Arc<Inner<T>> = unsafe { core::ptr::read(inner) };
+            core::mem::forget(self);
             Ok(())
         } else {
             inner.take_value(); // force drop.
