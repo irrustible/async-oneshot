@@ -1,11 +1,6 @@
-use core::cell::UnsafeCell;
-use core::mem::MaybeUninit;
-use core::ptr::drop_in_place;
-use core::sync::atomic::{
-    AtomicUsize,
-    Ordering::{AcqRel, Acquire},
-};
-use core::task::Waker;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering::{AcqRel, Acquire};
+use core::{cell::UnsafeCell, mem::MaybeUninit, ptr::drop_in_place, task::Waker};
 
 #[derive(Debug)]
 pub struct Inner<T> {
