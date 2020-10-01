@@ -1,6 +1,6 @@
 use crate::*;
 use alloc::sync::Arc;
-use core::task::Poll;
+use core::{future::Future, task::Poll};
 use futures_micro::poll_state;
 
 /// The sending half of a oneshot channel.
@@ -11,11 +11,10 @@ pub struct Sender<T> {
 }
 
 impl<T> Sender<T> {
-
     pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
         Sender { inner, done: false }
     }
-        
+
     /// Closes the channel by causing an immediate drop
     pub fn close(self) { }
 
@@ -25,7 +24,7 @@ impl<T> Sender<T> {
     /// Waits for a Receiver to be waiting for us to send something
     /// (i.e. allows you to produce a value to send on demand).
     /// Fails if the Receiver is dropped.
-    pub async fn wait(self) -> Result<Self, Closed> {
+    pub fn wait(self) -> impl Future<Output = Result<Self, Closed>> {
         poll_state(Some(self), |this, ctx| {
             let mut that = this.take().unwrap();
             let state = that.inner.state();
@@ -39,7 +38,7 @@ impl<T> Sender<T> {
                 *this = Some(that);
                 Poll::Pending
             }
-        }).await
+        })
     }
 
     /// Sends a message on the channel. Fails if the Receiver is dropped.
@@ -58,7 +57,7 @@ impl<T> Sender<T> {
             inner.take_value(); // force drop.
             Err(Closed())
         }
-    }        
+    }
 }
 
 impl<T> Drop for Sender<T> {
@@ -68,7 +67,7 @@ impl<T> Drop for Sender<T> {
             if !state.closed() {
                 let old = self.inner.close();
                 if old.recv() { self.inner.recv().wake_by_ref(); }
-            }            
+            }
         }
     }
 }

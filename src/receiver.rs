@@ -1,6 +1,5 @@
 use crate::*;
-use core::future::Future;
-use core::pin::Pin;
+use core::{future::Future, pin::Pin};
 use core::task::{Context, Poll};
 
 /// The receiving half of a oneshot channel.
@@ -11,7 +10,6 @@ pub struct Receiver<T> {
 }
 
 impl<T> Receiver<T> {
-
     pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
         Receiver { inner, done: false }
     }
@@ -35,8 +33,6 @@ impl<T> Receiver<T> {
     }
 }
 
-
-
 impl<T> Future for Receiver<T> {
     type Output = Result<T, Closed>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<T, Closed>> {
@@ -56,7 +52,7 @@ impl<T> Future for Receiver<T> {
             } else {
                 if state.send() { this.inner.send().wake_by_ref(); }
                 Poll::Pending
-            }                
+            }
         }
     }
 }
