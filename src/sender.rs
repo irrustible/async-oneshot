@@ -1,6 +1,6 @@
 use crate::*;
 use alloc::sync::Arc;
-use core::task::Poll;
+use core::{future::Future, task::Poll};
 use futures_micro::poll_state;
 
 /// The sending half of a oneshot channel.
@@ -24,7 +24,7 @@ impl<T> Sender<T> {
     /// Waits for a Receiver to be waiting for us to send something
     /// (i.e. allows you to produce a value to send on demand).
     /// Fails if the Receiver is dropped.
-    pub async fn wait(self) -> Result<Self, Closed> {
+    pub fn wait(self) -> impl Future<Output = Result<Self, Closed>> {
         poll_state(Some(self), |this, ctx| {
             let mut that = this.take().unwrap();
             let state = that.inner.state();
@@ -38,7 +38,7 @@ impl<T> Sender<T> {
                 *this = Some(that);
                 Poll::Pending
             }
-        }).await
+        })
     }
 
     /// Sends a message on the channel. Fails if the Receiver is dropped.

@@ -1,6 +1,5 @@
 use crate::*;
-use core::future::Future;
-use core::pin::Pin;
+use core::{future::Future, pin::Pin};
 use core::task::{Context, Poll};
 
 /// The receiving half of a oneshot channel.
