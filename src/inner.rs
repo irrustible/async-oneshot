@@ -21,7 +21,6 @@ const RECV: usize   = 0b0010;
 const READY: usize  = 0b0001;
 
 impl<T> Inner<T> {
-
     pub fn new() -> Self {
         Inner {
             state: AtomicUsize::new(0),
@@ -73,7 +72,6 @@ impl<T> Inner<T> {
     pub fn close(&self) -> State {
         State(self.state.fetch_or(CLOSED, AcqRel))
     }
-
 }
 
 impl<T> Drop for Inner<T> {
@@ -95,13 +93,8 @@ unsafe impl<T: Sync> Sync for Inner<T> {}
 pub struct State(usize);
 
 impl State {
-
     pub fn closed(&self) -> bool { (self.0 & CLOSED) == CLOSED }
-
-    pub fn ready(&self)  -> bool { (self.0 & READY) == READY }
-
-    pub fn send(&self)   -> bool { (self.0 & SEND) == SEND }
-
-    pub fn recv(&self)   -> bool { (self.0 & RECV) == RECV }
-
+    pub fn ready(&self)  -> bool { (self.0 & READY ) == READY  }
+    pub fn send(&self)   -> bool { (self.0 & SEND  ) == SEND   }
+    pub fn recv(&self)   -> bool { (self.0 & RECV  ) == RECV   }
 }

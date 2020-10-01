@@ -11,11 +11,10 @@ pub struct Sender<T> {
 }
 
 impl<T> Sender<T> {
-
     pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
         Sender { inner, done: false }
     }
-        
+
     /// Closes the channel by causing an immediate drop
     pub fn close(self) { }
 
@@ -58,7 +57,7 @@ impl<T> Sender<T> {
             inner.take_value(); // force drop.
             Err(Closed())
         }
-    }        
+    }
 }
 
 impl<T> Drop for Sender<T> {
@@ -68,7 +67,7 @@ impl<T> Drop for Sender<T> {
             if !state.closed() {
                 let old = self.inner.close();
                 if old.recv() { self.inner.recv().wake_by_ref(); }
-            }            
+            }
         }
     }
 }
