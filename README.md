@@ -66,6 +66,54 @@ gaming. Please audit carefully!
 * [async-oneshot-local](https://github.com/irrustible/async-oneshot-local) (single threaded)
 * [async-channel](https://github.com/stjepang/async-channel) (MPMC)
 
+## Changelog
+
+### v0.4.0
+
+Breaking changes:
+
+* `Sender.wait()`'s function signature has changed to be a non-`async
+  fn` returning an `impl Future`. This reduces the size of the
+  generated binary, because apparently rust cannot optimise through
+  empty async fns as much as I thought. Thanks @zserik!
+
+Fixes:
+
+ * Race condition where the sender closes in a narrow window during
+   receiver poll. Thanks @zserik!
+
+Improvements:
+
+ * Static assertions. Thanks @zserik!
+
+### v0.3.3
+
+Improvements:
+
+* Update `futures-micro` and improve the tests
+
+### v0.3.2
+
+Fixes:
+
+* Segfault when dropping receiver. Caused by a typo, d'oh! Thanks @boardwalk!
+
+### v0.3.1
+
+Improvements:
+
+* Remove redundant use of ManuallyDrop with UnsafeCell. Thanks @cynecx!
+
+### v0.3.0
+
+Improvements:
+
+* Rewrote, benchmarked and optimised.
+
+### v0.2.0
+
+* First real release.
+
 ## Copyright and License
 
 Copyright (c) 2020 James Laver, async-oneshot contributors.
