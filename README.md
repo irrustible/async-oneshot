@@ -80,7 +80,7 @@ Breaking changes:
 Fixes:
 
  * Race condition where the sender closes in a narrow window during
-   receiver poll. Thanks @zserik!
+   receiver poll and doesn't wake the Receiver. Thanks @zserik!
 
 Improvements:
 
