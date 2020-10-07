@@ -17,3 +17,8 @@ futures-micro = "0.3.1"
 
 [dev-dependencies]
 futures-lite="0.1"
+criterion = { version = "0.3", features = ["real_blackbox"] }
+
+[[bench]]
+name = "oneshot"
+harness = false

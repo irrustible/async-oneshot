@@ -64,6 +64,7 @@ gaming. Please audit carefully!
 # See Also
 
 * [async-oneshot-local](https://github.com/irrustible/async-oneshot-local) (single threaded)
+* [async-spsc](https://github.com/irrustible/async-spsc) (SPSC)
 * [async-channel](https://github.com/stjepang/async-channel) (MPMC)
 
 ## Changelog
@@ -73,9 +74,8 @@ gaming. Please audit carefully!
 Breaking changes:
 
 * `Sender.wait()`'s function signature has changed to be a non-`async
-  fn` returning an `impl Future`. This reduces the size of the
-  generated binary, because apparently rust cannot optimise through
-  empty async fns as much as I thought. Thanks @zserik!
+  fn` returning an `impl Future`. This reduces binary size, runtime
+  and possibly memory usage too. Thanks @zserik!
 
 Fixes:
 
