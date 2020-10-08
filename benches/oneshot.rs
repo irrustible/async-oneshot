@@ -24,11 +24,8 @@ pub fn send(c: &mut Criterion) {
     group.bench_function(
         "closed",
         |b| b.iter_batched(
-            || oneshot::<usize>(),
-            |(send, recv)| {
-                recv.close();
-                send.send(1).unwrap_err();
-            },
+            || oneshot::<usize>().1,
+            |send| send.send(1).unwrap_err(),
             BatchSize::PerIteration
         )
     );
