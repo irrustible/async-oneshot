@@ -1,9 +1,9 @@
 [package]
 name = "async-oneshot"
 version = "0.4.0"
-description = "A fast, small, full-featured async-aware oneshot channel."
+description = "A fast, small, full-featured, async-aware oneshot channel."
 keywords = ["oneshot", "channel"]
-categories = ["asynchronous", "concurrency", "data-structures"]
+categories = ["asynchronous", "concurrency", "data-structures", "no-std"]
 authors = ["James Laver <james.laver@gmail.com>"]
 homepage = "https://github.com/irrustible/async-oneshot"
 repository = "https://github.com/irrustible/async-oneshot"

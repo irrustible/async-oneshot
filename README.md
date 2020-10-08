@@ -4,12 +4,12 @@
 [![Package](https://img.shields.io/crates/v/async-oneshot.svg)](https://crates.io/crates/async-oneshot)
 [![Documentation](https://docs.rs/async-oneshot/badge.svg)](https://docs.rs/async-oneshot)
 
-A fast and small async-aware oneshot channel.
+A fast, small, full-featured, async-aware oneshot channel.
 
 Features:
 
-* Probably the fastest oneshot channel in the world (see 'Performance')
-* Tiny code, only one dependency and a blazing quick build.
+* Blazing fast! See `Performance` section below.
+* Tiny code, only one dependency and a lightning quick build.
 * Complete `no_std` support (with `alloc` for `Arc`).
 * Unique feature: sender may wait for a receiver to be waiting.
 
@@ -26,27 +26,32 @@ fn success_one_thread() {
 
 ## Performance
 
-Here are benchmark numbers on my Ryzen 9 3900X:
+async-oneshot comes with a benchmark suite which you can run with
+`cargo bench`.
+
+All benches are single-threaded and take double digit nanoseconds on
+my machine. async benches use `futures_lite::future::block_on` as an
+executor.
+
+### Numbers from my machine
+
+Here are benchmark numbers from my primary machine, a Ryzen 9 3900X
+running alpine linux 3.12 that I attempted to peg at maximum cpu:
 
 ```
-test create                ... bench:          56 ns/iter (+/- 2)
-test create_send           ... bench:          55 ns/iter (+/- 5)
-test create_send_recv      ... bench:          42 ns/iter (+/- 0)
-test create_wait_send_recv ... bench:         109 ns/iter (+/- 3)
+create_destroy          time:   [54.134 ns 54.150 ns 54.167 ns]
+send/success            time:   [15.399 ns 15.673 ns 15.929 ns]
+send/closed             time:   [45.022 ns 45.177 ns 45.321 ns]
+try_recv/success        time:   [43.752 ns 43.924 ns 44.078 ns]
+try_recv/empty          time:   [14.934 ns 15.244 ns 15.544 ns]
+try_recv/closed         time:   [45.867 ns 46.048 ns 46.211 ns]
+async.recv/success      time:   [45.851 ns 46.004 ns 46.141 ns]
+async.recv/closed       time:   [45.501 ns 45.730 ns 45.948 ns]
+async.wait/success      time:   [77.326 ns 77.372 ns 77.419 ns]
+async.wait/closed       time:   [47.672 ns 47.841 ns 48.002 ns]
 ```
 
-Here are the same benchmarks on my 2015 macbook pro:
-
-```
-test create                ... bench:         122 ns/iter (+/- 12)
-test create_send           ... bench:         122 ns/iter (+/- 21)
-test create_send_recv      ... bench:         126 ns/iter (+/- 8)
-test create_wait_send_recv ... bench:         232 ns/iter (+/- 29)
-```
-
-Most of the time is actually taken up by measurement overhead and the
-last bench is probably benching `futures_lite::future::block_on` more
-than it's benching this library. We are, in short, very fast. 
+In short, we are very fast. Close to optimal, I think.
 
 ### Compared to other libraries
 
@@ -58,8 +63,9 @@ tight.
 
 ## Note on safety
 
-Yes, this crate uses unsafe. 10 times. Not all of it is performance
-gaming. Please audit carefully!
+This crate uses UnsafeCell and manually synchronises with atomic
+bitwise ops for performance. We believe it is now correct, but we
+would welcome more eyes on it.
 
 # See Also
 
@@ -68,6 +74,10 @@ gaming. Please audit carefully!
 * [async-channel](https://github.com/stjepang/async-channel) (MPMC)
 
 ## Changelog
+
+### (unreleased)
+
+* Better benchmarks, based on criterion.
 
 ### v0.4.0
 

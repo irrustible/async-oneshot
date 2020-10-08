@@ -17,16 +17,16 @@ pub fn send(c: &mut Criterion) {
         "success",
         |b| b.iter_batched(
             || oneshot::<usize>(),
-            |(send, recv)| { (block_on(send.send(1)).unwrap(), recv) },
-            BatchSize::PerIteration
+            |(send, recv)| { (send.send(1).unwrap(), recv) },
+            BatchSize::SmallInput
         )
     );
     group.bench_function(
         "closed",
         |b| b.iter_batched(
             || oneshot::<usize>().0,
-            |send| block_on(send.send(1)).unwrap_err(),
-            BatchSize::PerIteration
+            |send| send.send(1).unwrap_err(),
+            BatchSize::SmallInput
         )
     );
 }
@@ -42,7 +42,7 @@ pub fn try_recv(c: &mut Criterion) {
                 recv
             },
             |recv| recv.try_recv().unwrap(),
-            BatchSize::PerIteration
+            BatchSize::SmallInput
         )
     );
     group.bench_function(
@@ -58,7 +58,7 @@ pub fn try_recv(c: &mut Criterion) {
         |b| b.iter_batched(
             || oneshot::<usize>().1,
             |recv| recv.try_recv().unwrap_err(),
-            BatchSize::PerIteration
+            BatchSize::SmallInput
         )
     );
 }
@@ -74,7 +74,7 @@ pub fn recv(c: &mut Criterion) {
                 recv
             },
             |recv| block_on(recv).unwrap(),
-            BatchSize::PerIteration
+            BatchSize::SmallInput
         )
     );
     group.bench_function(
@@ -86,7 +86,7 @@ pub fn recv(c: &mut Criterion) {
                 recv
             },
             |recv| block_on(recv).unwrap_err(),
-            BatchSize::PerIteration
+            BatchSize::SmallInput
         )
     );
 }
@@ -102,19 +102,15 @@ pub fn wait(c: &mut Criterion) {
                     async { send.wait().await.unwrap(); 2 }
                 )
             ),
-            BatchSize::PerIteration
+            BatchSize::SmallInput
         )
     );
     group.bench_function(
         "closed",
         |b| b.iter_batched(
-            || {
-                let (send, recv) = oneshot::<usize>();
-                recv.close();
-                send
-            },
+            || oneshot::<usize>().0,
             |send| block_on(send.wait()).unwrap_err(),
-            BatchSize::PerIteration
+            BatchSize::SmallInput
         )
     );
 }
