@@ -16,7 +16,7 @@ readme = "README.md"
 futures-micro = "0.3.1"
 
 [dev-dependencies]
-futures-lite="0.1"
+futures-lite="1"
 criterion = { version = "0.3", features = ["real_blackbox"] }
 
 [[bench]]

@@ -1,4 +1,5 @@
 use criterion::*;
+use futures_micro::or;
 use futures_lite::future::block_on;
 use async_oneshot::oneshot;
 
@@ -10,27 +11,22 @@ pub fn create_destroy(c: &mut Criterion) {
 }
 
 #[allow(unused_must_use)]
-pub fn send_succeed(c: &mut Criterion) {
-    c.bench_function(
-        "send_succeed",
+pub fn send(c: &mut Criterion) {
+    let mut group = c.benchmark_group("send");
+    group.bench_function(
+        "success",
         |b| b.iter_batched(
             || oneshot::<usize>(),
-            |(send, recv)| {
-                send.send(1).unwrap();
-                recv
-            },
+            |(send, recv)| { (send.send(1).unwrap(), recv) },
             BatchSize::PerIteration
         )
     );
-}
-
-pub fn send_fail(c: &mut Criterion) {
-    c.bench_function(
-        "send_fail",
+    group.bench_function(
+        "closed",
         |b| b.iter_batched(
             || oneshot::<usize>(),
             |(send, recv)| {
-                black_box(recv);
+                recv.close();
                 send.send(1).unwrap_err();
             },
             BatchSize::PerIteration
@@ -38,9 +34,10 @@ pub fn send_fail(c: &mut Criterion) {
     );
 }
 
-pub fn try_recv_succeed(c: &mut Criterion) {
-    c.bench_function(
-        "try_recv_succeed",
+pub fn try_recv(c: &mut Criterion) {
+    let mut group = c.benchmark_group("try_recv");
+    group.bench_function(
+        "success",
         |b| b.iter_batched(
             || {
                 let (send, recv) = oneshot::<usize>();
@@ -51,22 +48,16 @@ pub fn try_recv_succeed(c: &mut Criterion) {
             BatchSize::PerIteration
         )
     );
-}
-
-pub fn try_recv_empty(c: &mut Criterion) {
-    c.bench_function(
-        "try_recv_empty",
+    group.bench_function(
+        "empty",
         |b| b.iter_batched(
             || oneshot::<usize>(),
             |(send, recv)| (recv.try_recv().unwrap_err(), send),
             BatchSize::SmallInput
         )
     );
-}
-
-pub fn try_recv_fail(c: &mut Criterion) {
-    c.bench_function(
-        "try_recv_fail",
+    group.bench_function(
+        "closed",
         |b| b.iter_batched(
             || oneshot::<usize>().1,
             |recv| recv.try_recv().unwrap_err(),
@@ -75,13 +66,68 @@ pub fn try_recv_fail(c: &mut Criterion) {
     );
 }
 
+pub fn recv(c: &mut Criterion) {
+    let mut group = c.benchmark_group("async.recv");
+    group.bench_function(
+        "success",
+        |b| b.iter_batched(
+            || {
+                let (send, recv) = oneshot::<usize>();
+                send.send(42).unwrap();
+                recv
+            },
+            |recv| block_on(recv).unwrap(),
+            BatchSize::PerIteration
+        )
+    );
+    group.bench_function(
+        "closed",
+        |b| b.iter_batched(
+            || {
+                let (send, recv) = oneshot::<usize>();
+                send.close();
+                recv
+            },
+            |recv| block_on(recv).unwrap_err(),
+            BatchSize::PerIteration
+        )
+    );
+}
+
+pub fn wait(c: &mut Criterion) {
+    let mut group = c.benchmark_group("async.wait");
+    group.bench_function(
+        "success",
+        |b| b.iter_batched(
+            || oneshot::<usize>(),
+            |(send, recv)| block_on(
+                or!(async { recv.await.unwrap(); 1 },
+                    async { send.wait().await.unwrap(); 2 }
+                )
+            ),
+            BatchSize::PerIteration
+        )
+    );
+    group.bench_function(
+        "closed",
+        |b| b.iter_batched(
+            || {
+                let (send, recv) = oneshot::<usize>();
+                recv.close();
+                send
+            },
+            |send| block_on(send.wait()).unwrap_err(),
+            BatchSize::PerIteration
+        )
+    );
+}
+
 criterion_group!(
     benches
         , create_destroy
-        , send_succeed
-        , send_fail
-        , try_recv_succeed
-        , try_recv_empty
-        , try_recv_fail
+        , send
+        , try_recv
+        , recv
+        , wait
 );
 criterion_main!(benches);
