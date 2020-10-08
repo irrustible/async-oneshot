@@ -17,15 +17,15 @@ pub fn send(c: &mut Criterion) {
         "success",
         |b| b.iter_batched(
             || oneshot::<usize>(),
-            |(send, recv)| { (send.send(1).unwrap(), recv) },
+            |(send, recv)| { (block_on(send.send(1)).unwrap(), recv) },
             BatchSize::PerIteration
         )
     );
     group.bench_function(
         "closed",
         |b| b.iter_batched(
-            || oneshot::<usize>().1,
-            |send| send.send(1).unwrap_err(),
+            || oneshot::<usize>().0,
+            |send| block_on(send.send(1)).unwrap_err(),
             BatchSize::PerIteration
         )
     );
