@@ -75,6 +75,12 @@ would welcome more eyes on it.
 
 ## Changelog
 
+### (unreleased)
+
+Improvements:
+
+* Added some tests to cover repeated waking.
+
 ### v0.4.1
 
 Fixes:
