@@ -42,7 +42,6 @@ impl<T> Inner<T> {
 
     // Sets the receiver's waker.
     pub fn set_recv(&self, waker: Waker) -> State {
-        debug_assert!(!self.state().recv());
         let recv = self.recv.get();
         unsafe { (*recv).as_mut_ptr().write(waker) } // !
         State(self.state.fetch_or(RECV, AcqRel))
@@ -57,7 +56,6 @@ impl<T> Inner<T> {
 
     // Sets the sender's waker.
     pub fn set_send(&self, waker: Waker) -> State {
-        debug_assert!(!self.state().send());
         let send = self.send.get();
         unsafe { (*send).as_mut_ptr().write(waker) } // !
         State(self.state.fetch_or(SEND, AcqRel))
