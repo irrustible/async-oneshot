@@ -75,7 +75,14 @@ would welcome more eyes on it.
 
 ## Changelog
 
-### (unreleased)
+### v0.4.1
+
+Fixes:
+
+* Remove some overzealous `debug_assert`s that caused crashes in
+  development in some cases. Thanks @nazar-pc!
+
+Improvements:
 
 * Better benchmarks, based on criterion.
 
@@ -89,8 +96,8 @@ Breaking changes:
 
 Fixes:
 
- * Race condition where the sender closes in a narrow window during
-   receiver poll and doesn't wake the Receiver. Thanks @zserik!
+* Race condition where the sender closes in a narrow window during
+  receiver poll and doesn't wake the Receiver. Thanks @zserik!
 
 Improvements:
 
