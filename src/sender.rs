@@ -11,19 +11,23 @@ pub struct Sender<T> {
 }
 
 impl<T> Sender<T> {
+    #[inline(always)]
     pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
         Sender { inner, done: false }
     }
 
     /// Closes the channel by causing an immediate drop
+    #[inline(always)]
     pub fn close(self) { }
 
     /// true if the channel is closed
+    #[inline(always)]
     pub fn is_closed(&self) -> bool { self.inner.state().closed() }
 
     /// Waits for a Receiver to be waiting for us to send something
     /// (i.e. allows you to produce a value to send on demand).
     /// Fails if the Receiver is dropped.
+    #[inline]
     pub fn wait(self) -> impl Future<Output = Result<Self, Closed>> {
         poll_state(Some(self), |this, ctx| {
             let mut that = this.take().unwrap();
@@ -42,6 +46,7 @@ impl<T> Sender<T> {
     }
 
     /// Sends a message on the channel. Fails if the Receiver is dropped.
+    #[inline]
     pub fn send(mut self, value: T) -> Result<(), Closed> {
         self.done = true;
         let inner = &mut self.inner;
@@ -61,6 +66,7 @@ impl<T> Sender<T> {
 }
 
 impl<T> Drop for Sender<T> {
+    #[inline(always)]
     fn drop(&mut self) {
         if !self.done {
             let state = self.inner.state();

@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicUsize, Ordering::{Acquire, AcqRel}};
 use core::task::Waker;
 
 #[derive(Debug)]
-pub struct Inner<T> {
+pub(crate) struct Inner<T> {
     // This one is easy.
     state: AtomicUsize,
     // This is where it all starts to go a bit wrong.
@@ -21,7 +21,8 @@ const RECV: usize   = 0b0010;
 const READY: usize  = 0b0001;
 
 impl<T> Inner<T> {
-    pub fn new() -> Self {
+    #[inline(always)]
+    pub(crate) fn new() -> Self {
         Inner {
             state: AtomicUsize::new(0),
             value: UnsafeCell::new(MaybeUninit::uninit()),
@@ -31,17 +32,20 @@ impl<T> Inner<T> {
     }
 
     // Gets the current state
-    pub fn state(&self) -> State { State(self.state.load(Acquire)) }
+    #[inline(always)]
+    pub(crate) fn state(&self) -> State { State(self.state.load(Acquire)) }
 
     // Gets the receiver's waker. You *must* check the state to ensure
     // it is set. This would be unsafe if it were public.
-    pub fn recv(&self) -> &Waker { // MUST BE SET
+    #[inline(always)]
+    pub(crate) fn recv(&self) -> &Waker { // MUST BE SET
         debug_assert!(self.state().recv());
         unsafe { &*(*self.recv.get()).as_ptr() }
     }
 
     // Sets the receiver's waker.
-    pub fn set_recv(&self, waker: Waker) -> State {
+    #[inline(always)]
+    pub(crate) fn set_recv(&self, waker: Waker) -> State {
         let recv = self.recv.get();
         unsafe { (*recv).as_mut_ptr().write(waker) } // !
         State(self.state.fetch_or(RECV, AcqRel))
@@ -49,36 +53,42 @@ impl<T> Inner<T> {
 
     // Gets the sender's waker. You *must* check the state to ensure
     // it is set. This would be unsafe if it were public.
-    pub fn send(&self) -> &Waker {
+    #[inline(always)]
+    pub(crate) fn send(&self) -> &Waker {
         debug_assert!(self.state().send());
         unsafe { &*(*self.send.get()).as_ptr() }
     }
 
     // Sets the sender's waker.
-    pub fn set_send(&self, waker: Waker) -> State {
+    #[inline(always)]
+    pub(crate) fn set_send(&self, waker: Waker) -> State {
         let send = self.send.get();
         unsafe { (*send).as_mut_ptr().write(waker) } // !
         State(self.state.fetch_or(SEND, AcqRel))
     }
 
-    pub fn take_value(&self) -> T { // MUST BE SET
+    #[inline(always)]
+    pub(crate) fn take_value(&self) -> T { // MUST BE SET
         debug_assert!(self.state().ready());
         unsafe { (*self.value.get()).as_ptr().read() }
     }
 
-    pub fn set_value(&self, value: T) -> State {
+    #[inline(always)]
+    pub(crate) fn set_value(&self, value: T) -> State {
         debug_assert!(!self.state().ready());
         let val = self.value.get();
         unsafe { (*val).as_mut_ptr().write(value) }
         State(self.state.fetch_or(READY, AcqRel))
     }
 
-    pub fn close(&self) -> State {
+    #[inline(always)]
+    pub(crate) fn close(&self) -> State {
         State(self.state.fetch_or(CLOSED, AcqRel))
     }
 }
 
 impl<T> Drop for Inner<T> {
+    #[inline(always)]
     fn drop(&mut self) {
         let state = State(*self.state.get_mut());
         // Drop the wakers if they are present
@@ -95,11 +105,15 @@ unsafe impl<T: Send> Send for Inner<T> {}
 unsafe impl<T: Sync> Sync for Inner<T> {}
 
 #[derive(Clone, Copy)]
-pub struct State(usize);
+pub(crate) struct State(usize);
 
 impl State {
-    pub fn closed(&self) -> bool { (self.0 & CLOSED) == CLOSED }
-    pub fn ready(&self)  -> bool { (self.0 & READY ) == READY  }
-    pub fn send(&self)   -> bool { (self.0 & SEND  ) == SEND   }
-    pub fn recv(&self)   -> bool { (self.0 & RECV  ) == RECV   }
+    #[inline(always)]
+    pub(crate) fn closed(&self) -> bool { (self.0 & CLOSED) == CLOSED }
+    #[inline(always)]
+    pub(crate) fn ready(&self)  -> bool { (self.0 & READY ) == READY  }
+    #[inline(always)]
+    pub(crate) fn send(&self)   -> bool { (self.0 & SEND  ) == SEND   }
+    #[inline(always)]
+    pub(crate) fn recv(&self)   -> bool { (self.0 & RECV  ) == RECV   }
 }

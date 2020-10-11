@@ -10,15 +10,16 @@ pub struct Receiver<T> {
 }
 
 impl<T> Receiver<T> {
-    #[inline]
+    #[inline(always)]
     pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
         Receiver { inner, done: false }
     }
 
     /// Closes the channel by causing an immediate drop.
-    #[inline]
+    #[inline(always)]
     pub fn close(self) { }
 
+    #[inline(always)]
     fn handle_state(&mut self, state: crate::inner::State) -> Poll<Result<T, Closed>> {
         if state.ready() {
             Poll::Ready(Ok(self.inner.take_value()))
@@ -34,6 +35,7 @@ impl<T> Receiver<T> {
 
     /// Attempts to receive. On failure, if the channel is not closed,
     /// returns self to try again.
+    #[inline]
     pub fn try_recv(mut self) -> Result<T, TryRecvError<T>> {
         let state = self.inner.state();
         match self.handle_state(state) {
@@ -63,6 +65,7 @@ impl<T> Future for Receiver<T> {
 }
 
 impl<T> Drop for Receiver<T> {
+    #[inline(always)]
     fn drop(&mut self) {
         if !self.done {
             let state = self.inner.state();
