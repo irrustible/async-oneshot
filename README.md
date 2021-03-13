@@ -64,7 +64,7 @@ tight.
 ## Note on safety
 
 This crate uses UnsafeCell and manually synchronises with atomic
-bitwise ops for performance. We believe it is now correct, but we
+bitwise ops for performance. We believe it is correct, but we
 would welcome more eyes on it.
 
 # See Also
@@ -78,6 +78,12 @@ would welcome more eyes on it.
 The benchmarks are synthetic and a bit of fun.
 
 ## Changelog
+
+### v0.5.0
+
+Breaking changes:
+
+* Make `Sender.send()` only take a mut ref instead of move.
 
 ### v0.4.2
 
