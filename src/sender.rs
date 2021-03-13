@@ -48,22 +48,27 @@ impl<T> Sender<T> {
 
     /// Sends a message on the channel. Fails if the Receiver is dropped.
     #[inline]
-    pub fn send(mut self, value: T) -> Result<(), Closed> {
-        self.done = true;
-        let inner = &mut self.inner;
-        let state = inner.set_value(value);
-        if !state.closed() {
-            if state.recv() {
-                inner.recv().wake_by_ref();
-                Ok(())
-            } else {
-                Ok(())
-            }
-        } else {
-            inner.take_value(); // force drop.
+    pub fn send(&mut self, value: T) -> Result<(), Closed> {
+        if self.done {
             Err(Closed())
+        } else {
+            self.done = true;
+            let inner = &mut self.inner;
+            let state = inner.set_value(value);
+            if !state.closed() {
+                if state.recv() {
+                    inner.recv().wake_by_ref();
+                    Ok(())
+                } else {
+                    Ok(())
+                }
+            } else {
+                inner.take_value(); // force drop.
+                Err(Closed())
+            }
         }
     }
+
 }
 
 impl<T> Drop for Sender<T> {

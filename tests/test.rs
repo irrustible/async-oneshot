@@ -5,7 +5,7 @@ use waker_fn::waker_fn;
 
 #[test]
 fn send_recv() {
-    let (s,r) = oneshot::<i32>();
+    let (mut s,r) = oneshot::<i32>();
     assert_eq!(
         block_on(zip!(async { s.send(42).unwrap() }, r)),
         ((), Ok(42))
@@ -13,7 +13,7 @@ fn send_recv() {
 }
 #[test]
 fn recv_send() {
-    let (s,r) = oneshot::<i32>();
+    let (mut s,r) = oneshot::<i32>();
     assert_eq!(
         block_on(zip!(r, async { s.send(42).unwrap() })),
         (Ok(42), ())
@@ -22,7 +22,7 @@ fn recv_send() {
 
 #[test]
 fn recv_recv() {
-    let (s, mut r) = oneshot::<i32>();
+    let (_s, mut r) = oneshot::<i32>();
     let waker = waker_fn(|| ());
     let mut ctx = Context::from_waker(&waker);
     assert_eq!(Receiver::poll(Pin::new(&mut r), &mut ctx), Poll::Pending);
@@ -38,14 +38,14 @@ fn close_recv() {
 
 #[test]
 fn close_send() {
-    let (s,r) = oneshot::<bool>();
+    let (mut s,r) = oneshot::<bool>();
     r.close();
     assert_eq!(Err(Closed()), s.send(true));
 }
 
 #[test]
 fn send_close() {
-    let (s,r) = oneshot::<bool>();
+    let (mut s,r) = oneshot::<bool>();
     s.send(true).unwrap();
     r.close();
 }
@@ -98,7 +98,7 @@ fn wait_recv_send() {
     let (s,r) = oneshot::<i32>();
     assert_eq!(
         block_on(
-            zip!(async { let s = s.wait().await?; s.send(42) }, r)
+            zip!(async { let mut s = s.wait().await?; s.send(42) }, r)
         ),
         (Ok(()), Ok(42))
     )

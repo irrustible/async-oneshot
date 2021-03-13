@@ -17,7 +17,7 @@ pub fn send(c: &mut Criterion) {
         "success",
         |b| b.iter_batched(
             || oneshot::<usize>(),
-            |(send, recv)| { (send.send(1).unwrap(), recv) },
+            |(mut send, recv)| { (send.send(1).unwrap(), recv) },
             BatchSize::SmallInput
         )
     );
@@ -25,7 +25,7 @@ pub fn send(c: &mut Criterion) {
         "closed",
         |b| b.iter_batched(
             || oneshot::<usize>().0,
-            |send| send.send(1).unwrap_err(),
+            |mut send| send.send(1).unwrap_err(),
             BatchSize::SmallInput
         )
     );
@@ -37,7 +37,7 @@ pub fn try_recv(c: &mut Criterion) {
         "success",
         |b| b.iter_batched(
             || {
-                let (send, recv) = oneshot::<usize>();
+                let (mut send, recv) = oneshot::<usize>();
                 send.send(1).unwrap();
                 recv
             },
@@ -69,7 +69,7 @@ pub fn recv(c: &mut Criterion) {
         "success",
         |b| b.iter_batched(
             || {
-                let (send, recv) = oneshot::<usize>();
+                let (mut send, recv) = oneshot::<usize>();
                 send.send(42).unwrap();
                 recv
             },
