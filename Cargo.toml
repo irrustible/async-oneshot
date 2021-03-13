@@ -1,6 +1,6 @@
 [package]
 name = "async-oneshot"
-version = "0.4.2"
+version = "0.4.3"
 description = "A fast, small, full-featured, async-aware oneshot channel."
 keywords = ["oneshot", "channel"]
 categories = ["asynchronous", "concurrency", "data-structures", "no-std"]
@@ -13,7 +13,7 @@ edition = "2018"
 readme = "README.md"
 
 [dependencies]
-futures-micro = "0.3.1"
+futures-micro = "0.5.0"
 
 [dev-dependencies]
 futures-lite="1"
