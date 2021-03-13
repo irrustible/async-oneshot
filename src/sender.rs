@@ -1,7 +1,7 @@
 use crate::*;
 use alloc::sync::Arc;
 use core::{future::Future, task::Poll};
-use futures_micro::poll_state;
+use futures_micro::poll_fn;
 
 /// The sending half of a oneshot channel.
 #[derive(Debug)]
@@ -29,7 +29,8 @@ impl<T> Sender<T> {
     /// Fails if the Receiver is dropped.
     #[inline]
     pub fn wait(self) -> impl Future<Output = Result<Self, Closed>> {
-        poll_state(Some(self), |this, ctx| {
+        let mut this = Some(self);
+        poll_fn(move |ctx| {
             let mut that = this.take().unwrap();
             let state = that.inner.state();
             if state.closed() {
@@ -39,7 +40,7 @@ impl<T> Sender<T> {
                 Poll::Ready(Ok(that))
             } else {
                 that.inner.set_send(ctx.waker().clone());
-                *this = Some(that);
+                this = Some(that);
                 Poll::Pending
             }
         })
