@@ -26,13 +26,13 @@ pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
 
 /// An empty struct that signifies the channel is closed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Closed();
+pub struct Closed;
 
 /// We couldn't receive a message.
 #[derive(Debug)]
-pub enum TryRecvError<T> {
+pub enum TryRecvError {
     /// The Sender didn't send us a message yet.
-    Empty(Receiver<T>),
+    Empty,
     /// The Sender has dropped.
     Closed,
 }

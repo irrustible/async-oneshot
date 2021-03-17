@@ -41,7 +41,7 @@ pub fn try_recv(c: &mut Criterion) {
                 send.send(1).unwrap();
                 recv
             },
-            |recv| recv.try_recv().unwrap(),
+            |mut recv| recv.try_recv().unwrap(),
             BatchSize::SmallInput
         )
     );
@@ -49,7 +49,7 @@ pub fn try_recv(c: &mut Criterion) {
         "empty",
         |b| b.iter_batched(
             || oneshot::<usize>(),
-            |(send, recv)| (recv.try_recv().unwrap_err(), send),
+            |(send, mut recv)| (recv.try_recv().unwrap_err(), send),
             BatchSize::SmallInput
         )
     );
@@ -57,7 +57,7 @@ pub fn try_recv(c: &mut Criterion) {
         "closed",
         |b| b.iter_batched(
             || oneshot::<usize>().1,
-            |recv| recv.try_recv().unwrap_err(),
+            |mut recv| recv.try_recv().unwrap_err(),
             BatchSize::SmallInput
         )
     );

@@ -33,14 +33,14 @@ fn recv_recv() {
 fn close_recv() {
     let (s,r) = oneshot::<i32>();
     s.close();
-    assert_eq!(Err(Closed()), block_on(r));
+    assert_eq!(Err(Closed), block_on(r));
 }
 
 #[test]
 fn close_send() {
     let (mut s,r) = oneshot::<bool>();
     r.close();
-    assert_eq!(Err(Closed()), s.send(true));
+    assert_eq!(Err(Closed), s.send(true));
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn recv_close() {
     let (s,r) = oneshot::<bool>();
     assert_eq!(
         block_on(zip!(r, async { s.close() })),
-        (Err(Closed()), ())
+        (Err(Closed), ())
     )
 }
 
@@ -67,7 +67,7 @@ fn wait_close() {
             zip!(async { s.wait().await.unwrap_err() },
                  async { r.close() })
         ),
-        (Closed(), ())
+        (Closed, ())
     )
 }
 
@@ -89,7 +89,7 @@ fn wait_recv_close() {
         block_on(
             zip!(async { s.wait().await.unwrap().close(); println!("closed"); }, r)
         ),
-        ((), Err(Closed()))
+        ((), Err(Closed))
     )
 }
 
@@ -108,5 +108,5 @@ fn wait_recv_send() {
 fn close_wait() {
     let (s,r) = oneshot::<bool>();
     r.close();
-    assert_eq!(Closed(), block_on(s.wait()).unwrap_err());
+    assert_eq!(Closed, block_on(s.wait()).unwrap_err());
 }
