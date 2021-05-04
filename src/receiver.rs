@@ -1,135 +1,176 @@
 use crate::*;
-use core::{future::Future, pin::Pin};
+use crate::Flag::*;
+#[cfg(feature="async")]
+use core::hint::spin_loop;
+#[cfg(feature="async")]
+use core::{future::Future};
+#[cfg(feature="async")]
 use core::task::{Context, Poll};
+#[cfg(feature="async")]
+use futures_micro::poll_fn;
 
-/// The receiving half of a oneshot channel.
+/// A Unique means of Receiving a message on a oneshot channel.
 #[derive(Debug)]
 pub struct Receiver<T> {
-    inner: Arc<Inner<T>>,
-    // Set when the value has been received or the channel has been closed.
+    channel: *mut Channel<T>,
     done: bool,
 }
 
+macro_rules! drop_if_any {
+    ($state:expr, $channel:expr, $flags:expr, $ret:expr) => {
+        if $flags.any($state) {
+            // We need to drop the channel to avoid a leak.
+            // Safe because we are the only referent now the Receiver dropped.
+            let _box = unsafe { Box::from_raw($channel) };
+            return $ret;
+        }
+    }
+}    
+
+#[cfg(feature="async")] // #[cfg(any(feature="async",feature="parking"))]
+// If the sender has dropped, drop the channel.
+macro_rules! poll_dropped {
+    ($state:expr, $channel:expr, $done:expr) => {
+        if SenderDropped.any($state) {
+            $done = true;
+            let val = unsafe { $channel.read().value() };
+            // Safe: the sender will not touch the inner again.
+            let _box = unsafe { Box::from_raw($channel) };
+            return Poll::Ready(val.ok_or(Closed));
+        }
+    }
+}    
+
 impl<T> Receiver<T> {
     #[inline(always)]
-    pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
-        Receiver { inner, done: false }
+    pub unsafe fn new(channel: *mut Channel<T>) -> Self {
+        Receiver { channel, done: false }
     }
 
-    /// Closes the channel by causing an immediate drop.
-    #[inline(always)]
-    pub fn close(self) { }
+    // /// Whether the channel is closed.
+    // #[inline(always)]
+    // pub fn is_closed(&self) -> bool {
+    //     if self.done { true }
+    //     else { SenderDropped.any(unsafe { self.chan().read() }) }
+    // }
 
-    /// true if the channel is closed
+    /// Attempts to receive the value. Fails immediately if the
+    /// channel is closed or there is not yet a value present.
+    // Pretty good, only 1 atomic either way.
     #[inline(always)]
-    pub fn is_closed(&self) -> bool { self.inner.state().closed() }
-
-    #[inline(always)]
-    fn handle_state(&mut self, state: &crate::inner::State<T>) -> Poll<Result<T, Closed>> {
-        match state.is_ready() {
-            // If the value is ready, we are safe to take it because
-            // the sender never untakes it and we haven't yet taken it
-            // (or done would be set and we checked in the caller).
-            Ok(proof) => {
-                self.done = true;
-                Poll::Ready(Ok(self.inner.take_value(proof)))
-            }
-            Err(proof) => {
-                proof.check(&*self.inner as *const Inner<T>);
-                match state.is_open() {
-                    // Because we might be either sync or async here,
-                    // we can't do anything.
-                    Ok(proof) => {
-                        proof.check(&*self.inner as *const Inner<T>);
-                        Poll::Pending
-                    }
-                    // If the channel is closed, the Sender has done
-                    // it because we haven't yet taken it (or done
-                    // would be set and we checked in the caller).
-                    Err(proof) => {
-                        proof.check(&*self.inner as *const Inner<T>);
-                        self.done = true;
-                        Poll::Ready(Err(Closed))
-                    }
-                }
-            }
+    pub fn try_recv(&mut self) -> Result<T, TryReceiveError> {
+        if self.done { return Err(TryReceiveError::Closed); }
+        let state = self.chan().read();
+        // If the sender has set a value or dropped, it promises never
+        // to touch the inner again and we promise to clean up.
+        if SenderDropped.any(state) {
+            self.done = true;
+            let value = unsafe { self.channel.read().value() };
+            let _box = unsafe { Box::from_raw(self.channel) };
+            return value.ok_or(TryReceiveError::Closed);
         }
+        return Err(TryReceiveError::Empty);
     }
 
-    /// Attempts to receive the value.
-    #[inline]
-    pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        if self.done {
-            // The channel has either been closed or we've already
-            // received a value, which we'll count as closed. Either
-            // way, we won't be receiving anything on it now.
-            Err(TryRecvError::Closed)
-        } else {
-            let state = self.inner.state();
-            match self.handle_state(&state) {
-                Poll::Ready(Ok(x)) => Ok(x),
-                Poll::Ready(Err(Closed)) => Err(TryRecvError::Closed),
-                Poll::Pending => Err(TryRecvError::Empty),
+    #[cfg(feature="async")]
+    #[inline(always)]
+    pub fn recv(&mut self) -> impl Future<Output=Result<T, Closed>> + '_ {
+        poll_fn(move |ctx| {
+            // If we're done, we should not have been called.
+            if self.done { return Poll::Ready(Err(Closed)); }
+            // We will need to lock to set our waiting. And possibly to wake the sender.
+            let mut state = unsafe { self.chan().set(Locked) };
+            poll_dropped!(state, self.channel, self.done);
+            while Locked.any(state) {
+                spin_loop();
+                state = unsafe { self.chan().set(Locked) };
+                poll_dropped!(state, self.channel, self.done);
             }
-        }
-    }
-}
-
-impl<T> Future for Receiver<T> {
-    type Output = Result<T, Closed>;
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<T, Closed>> {
-        let this = Pin::into_inner(self);
-        if this.done {
-            // The channel has either been closed or we've already
-            // received a value, which we'll count as closed. Either
-            // way, we won't be receiving anything on it now.
-            Poll::Ready(Err(Closed))
-        } else {
-            let state = this.inner.state();
-            match this.handle_state(&state) {
-                Poll::Pending => {},
-                x => return x,
-            }
-            let state = this.inner.set_receiver_waker(ctx.waker().clone());
-            match this.handle_state(&state) {
-                Poll::Pending => {},
-                x => return x,
-            }
-            if let Some(proof) = state.has_sender_waker() {
-                this.inner.sender_waker(proof).wake_by_ref();
+            // Okay, now we can wait
+            let _old = unsafe { self.chan().set_receiver_waiting(ctx.waker().clone()) };
+            // We want ReceiverWaker to go/stay on while we set
+            // Locked off, so we are going to need flip aka xor to do
+            // it in a single atomic operation.
+            let mask =
+                if ReceiverWaker.any(state) { Locked.into() }
+                else { Locked | ReceiverWaker };
+            if SenderWaker.any(state) {
+                // We will need to wake them and toggle their flag off
+                let waiting = unsafe { self.chan().sender_waiting() };
+                state = unsafe { self.chan().flip(mask | SenderWaker) };
+                poll_dropped!(state, self.channel, self.done);
+                if let Some(waker) = waiting { waker.wake(); }
+            } else {
+                state = unsafe { self.chan().flip(mask) };
+                poll_dropped!(state, self.channel, self.done);
             }
             Poll::Pending
-        }
+        })
     }
+
+    // Turn our icky *mut into a nice const reference.
+    #[inline(always)]
+    fn chan(&self) -> &Channel<T> { unsafe { &*(self.channel as *const Channel<T>) } }
+
 }
+
+// macro_rules! pending {
+//     ($e:expr) => {
+//         if let Poll::Ready(x) = $e {
+//             return Poll::Ready(x);
+//         }
+//     }
+// }
+// impl<T> Future for Receiver<T> {
+//     type Output = Result<T, Closed>;
+//     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<T, Closed>> {
+//         let this = Pin::into_inner(self);
+//         if this.done {
+//             // The channel has either been closed or we've already
+//             // received a value, which we'll count as closed. Either
+//             // way, we won't be receiving anything on it now.
+//             Poll::Ready(Err(Closed))
+//         } else {
+//             // We'll start off by reading the state
+//             let state = this.inner.state();
+//             pending!(this.handle_state(&state));
+//             let state = this.inner.set_receiver_waker(&state, ctx.waker().clone());
+//             pending!(this.handle_state(&state));
+//             if let Some(proof) = state.has_sender_waker() {
+//                 this.inner.sender_waker(proof).wake_by_ref();
+//             }
+//             Poll::Pending
+//         }
+//     
+// }
 
 impl<T> Drop for Receiver<T> {
     #[inline(always)]
+    // Pretty good if we don't have to spin, two atomic ops
     fn drop(&mut self) {
-        if !self.done {
-            let state = self.inner.state();
-            match (state.is_open(), state.is_ready()) {
-                (Ok(p),Ok(q)) => {
-                    p.check(&*self.inner as *const Inner<T>);
-                    q.check(&*self.inner as *const Inner<T>);
-                }
-                (Ok(p),Err(q)) => {
-                    p.check(&*self.inner as *const Inner<T>);
-                    q.check(&*self.inner as *const Inner<T>);
-                    let old = self.inner.close();
-                    if let Some(r) = old.has_sender_waker() {
-                        self.inner.sender_waker(r).wake_by_ref();
-                    }
-                }
-                (Err(p),Ok(q)) => {
-                    p.check(&*self.inner as *const Inner<T>);
-                    q.check(&*self.inner as *const Inner<T>);
-                }
-                (Err(p),Err(q)) => {
-                    p.check(&*self.inner as *const Inner<T>);
-                    q.check(&*self.inner as *const Inner<T>);
-                }
-            }
+        // If we are done, the sender will clean up.
+        if self.done { return; }
+        // We may need to wake the sender and in any case it
+        // simplifies our job if we can stop them waiting for us while
+        // we're finishing up.
+        let mut state = unsafe { self.chan().set(Locked) };
+        drop_if_any!(state, self.channel, SenderDropped, ());
+        while Locked.any(state) {
+            eprintln!("receiverspin");
+            spin_loop();
+            state = unsafe { self.chan().set(Locked) };
+            drop_if_any!(state, self.channel, SenderDropped, ());
         }
+        if SenderWaker.any(state) {
+            let sender = unsafe { self.chan().sender_waiting() };
+            state = unsafe { self.chan().flip(Locked | ReceiverDropped) };
+            drop_if_any!(state, self.channel, SenderDropped, ());
+            if let Some(waker) = sender {
+                waker.wake();
+            }
+            return;
+        }
+        state = unsafe { self.chan().flip(Locked | ReceiverDropped) };
+        drop_if_any!(state, self.channel, SenderDropped, ());
     }
 }

@@ -1,39 +1,59 @@
-//! A fast, small, full-featured async-aware oneshot channel
-//!
-//! Unique feature: wait for receiver to be waiting.
-//!
-//! Also supports the full range of things you'd expect.
-#![no_std]
+//! An easy-to-use, flexible, fast, small, no-std (with alloc)
+//! compatible, async-aware oneshot channel.
+// If the user has turned off std, we should enable no_std.
+#![cfg_attr(not(feature="std"), no_std)]
+
+// // If you have enabled the nightly flag and you're running tests, we'd
+// // like to run some extra tests that need the generators feature and
+// // we're taking this as an assertion you have a nightly compiler.
+// #![cfg_attr(all(test, feature="nightly"), feature(generators, generator_trait))]
+// // #![cfg_attr(all(test, feature="nightly"), recursion_limit=4096)]
+// #[cfg(all(test, feature="nightly"))]
+// mod nightly_tests;
+
+// If we're allowed an allocator but not std, we need alloc to import
+// Box. std includes Box in the prelude.
+#[cfg(not(feature="std"))] //#[cfg(all(not(feature="std"),feature="alloc"))]
 extern crate alloc;
-use alloc::sync::Arc;
+#[cfg(not(feature="std"))] //#[cfg(all(not(feature="std"),feature="alloc"))]
+use alloc::boxed::Box;
 
-mod inner;
-pub(crate) use inner::Inner;
+use core::task::Waker;
 
+// Typesafe flags API
+
+mod flags;
+use flags::{Flag, Flags, Test};
+
+// The shared internal object
+mod channel;
+use channel::*;
+
+// The two halves
 mod sender;
-pub use sender::Sender;
-
 mod receiver;
-pub use receiver::Receiver;
+pub use sender::*;
+pub use receiver::*;
 
-/// Create a new oneshot channel pair.
+// If you've opted in, there are some extra logic tests based around generators we'd like to run.
+
+// #[cfg(any(feature="std",feature="alloc"))]
 pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
-    let inner = Arc::new(Inner::new());
-    let sender = Sender::new(inner.clone());
-    let receiver = Receiver::new(inner);
+    let channel = Box::into_raw(Box::new(Channel::new()));
+    let sender = unsafe { Sender::new(channel) };
+    let receiver = unsafe { Receiver::new(channel) };
     (sender, receiver)
 }
-
-/// An empty struct that signifies the channel is closed.
+ 
+/// The channel is closed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Closed;
 
-/// We couldn't receive a message.
-#[derive(Debug)]
-pub enum TryRecvError {
+/// The reason we could not receive a message.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TryReceiveError {
     /// The Sender didn't send us a message yet.
     Empty,
     /// The Sender has dropped.
     Closed,
 }
-

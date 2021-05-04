@@ -2,7 +2,7 @@
 name = "async-oneshot"
 version = "0.5.0"
 description = "A fast, small, full-featured, async-aware oneshot channel."
-keywords = ["oneshot", "channel"]
+keywords = ["oneshot", "channel", "promise"]
 categories = ["asynchronous", "concurrency", "data-structures", "no-std"]
 authors = ["James Laver <james.laver@gmail.com>"]
 homepage = "https://github.com/irrustible/async-oneshot"
@@ -11,15 +11,36 @@ documentation = "https://docs.rs/async-oneshot"
 license = "MPL-2.0"
 edition = "2018"
 readme = "README.md"
+resolver = "2"
 
-[dependencies]
-futures-micro = "0.5.0"
+[features]
+# alloc = [] # coming eventually - no alloc support.
+async = ["futures-micro", "pin-project-lite"] #, "alloc" ]
+# nightly = ["paste"]
+std = []
+default = ["async", "std"]
+# default = ["async", "std", "nightly"]
 
 [dev-dependencies]
-futures-lite="1"
-waker-fn = "1"
-criterion = { version = "0.3", features = ["real_blackbox"] }
+wookie = "0.1"
 
-[[bench]]
-name = "oneshot"
-harness = false
+[dependencies.futures-micro]
+version = "0.5.0"
+optional = true
+
+[dependencies.pin-project-lite]
+version = "0.2.6"
+optional = true
+
+# [dependencies.paste]
+# version = "1.0.5"
+# optional = true
+
+# benchmarks support - we would make this optional but we can't - thanks cargo!
+# [dev-dependencies.criterion]
+# version = "0.3.4"
+# features = ["real_blackbox"]
+
+# [[bench]]
+# name = "oneshot"
+# harness = false
