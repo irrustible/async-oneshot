@@ -1,59 +1,62 @@
-//! An easy-to-use, flexible, fast, small, no-std (with alloc)
-//! compatible, async-aware oneshot channel.
-// If the user has turned off std, we should enable no_std.
-#![cfg_attr(not(feature="std"), no_std)]
+//! An easy-to-use, high-performance single-message async channel for
+//! a single sender/receiver pair.
+// #![no_std]
 
-// // If you have enabled the nightly flag and you're running tests, we'd
-// // like to run some extra tests that need the generators feature and
-// // we're taking this as an assertion you have a nightly compiler.
-// #![cfg_attr(all(test, feature="nightly"), feature(generators, generator_trait))]
-// // #![cfg_attr(all(test, feature="nightly"), recursion_limit=4096)]
-// #[cfg(all(test, feature="nightly"))]
-// mod nightly_tests;
-
-// If we're allowed an allocator but not std, we need alloc to import
-// Box. std includes Box in the prelude.
-#[cfg(not(feature="std"))] //#[cfg(all(not(feature="std"),feature="alloc"))]
+#[cfg(feature="alloc")]
 extern crate alloc;
-#[cfg(not(feature="std"))] //#[cfg(all(not(feature="std"),feature="alloc"))]
+
+#[cfg(feature="alloc")]
 use alloc::boxed::Box;
+use core::ptr::NonNull;
 
-use core::task::Waker;
+// Things shared between the sender and receiver
+mod shared;
+pub use shared::{Closed, Hatch};
+use shared::*;
 
-// Typesafe flags API
+pub mod sender;
+pub mod receiver;
 
-mod flags;
-use flags::{Flag, Flags, Test};
+pub use sender::SendError;
 
-// The shared internal object
-mod channel;
-use channel::*;
+/// This is a convenience alias where the lifetime is static
+pub type Receiver<T> = receiver::Receiver<'static, T>;
+/// This is a convenience alias where the lifetime is static
+pub type Sender<T> = sender::Sender<'static, T>;
 
-// The two halves
-mod sender;
-mod receiver;
-pub use sender::*;
-pub use receiver::*;
-
-// If you've opted in, there are some extra logic tests based around generators we'd like to run.
-
-// #[cfg(any(feature="std",feature="alloc"))]
-pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
-    let channel = Box::into_raw(Box::new(Channel::new()));
-    let sender = unsafe { Sender::new(channel) };
-    let receiver = unsafe { Receiver::new(channel) };
-    (sender, receiver)
+#[cfg(feature="alloc")]
+/// Creates a new hatch backed by a box. Returns a [`Sender`]/[`Receiver`] pair.
+pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
+    let unbox = Box::leak(Box::new(Hatch::default()));
+    let non = unsafe { NonNull::new_unchecked(unbox) };
+    let holder = Holder::SharedBoxPtr(non);
+    // Safe because we have exclusive access
+    unsafe { (Sender::new(holder), Receiver::new(holder)) }
 }
- 
-/// The channel is closed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Closed;
 
-/// The reason we could not receive a message.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TryReceiveError {
-    /// The Sender didn't send us a message yet.
-    Empty,
-    /// The Sender has dropped.
-    Closed,
+/// Creates a new hatch backed by a ref to an existing Hatch. Unlike
+/// [`hatch`], this is not allocated on the stack and is bound by the
+/// lifetime of the passed mut ref.
+pub fn ref_hatch<T>(
+    hatch: &mut Hatch<T>
+) -> (sender::Sender<T>, receiver::Receiver<T>) {
+    let holder = Holder::Ref(hatch);
+    // Safe because we have exclusive access
+    unsafe { (sender::Sender::new(holder), receiver::Receiver::new(holder)) }
 }
+
+/// Creates a new hatch backed by a pointer to an existing [`Hatch`]
+/// whose lifetime is asserted to be whatever lifetime you say it is.
+///
+/// # Safety
+///
+/// * The provided pointer must outlive lifetime `'a`.
+/// * There must be no active `Sender` or `Receiver` on the Hatch.
+pub unsafe fn ptr_hatch<'a, T>(
+    hatch: NonNull<Hatch<T>>
+) -> (sender::Sender<'a, T>, receiver::Receiver<'a, T>) {
+    let holder = Holder::BorrowedPtr(hatch);
+    // Safe because we have exclusive access
+    (sender::Sender::new(holder), receiver::Receiver::new(holder))
+}
+

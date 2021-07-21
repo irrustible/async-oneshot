@@ -1,157 +1,188 @@
-# async-oneshot
+# async-hatch
 
-[![License](https://img.shields.io/crates/l/async-oneshot.svg)](https://github.com/irrustible/async-oneshot/blob/main/LICENSE)
-[![Package](https://img.shields.io/crates/v/async-oneshot.svg)](https://crates.io/crates/async-oneshot)
-[![Documentation](https://docs.rs/async-oneshot/badge.svg)](https://docs.rs/async-oneshot)
+[![License](https://img.shields.io/crates/l/async-hatch.svg)](https://github.com/irrustible/async-hatch/blob/main/LICENSE)
+[![Package](https://img.shields.io/crates/v/async-hatch.svg)](https://crates.io/crates/async-hatch)
+[![Documentation](https://docs.rs/async-hatch/badge.svg)](https://docs.rs/async-hatch)
 
-A fast, small, full-featured, async-aware oneshot channel.
+Easy-to-use single-message async channel. Formerly async-oneshot.
+
+## Status: beta
+
+This is now a mature project that we have confidence in the
+correctness of. We expect to do a 1.0 release soon.
+
+## Introduction
+
+`async-hatch` is a swiss army knife for synchronisation between two
+threads or async tasks.
+
+`channels` are a popular way of passing messages between async
+tasks. Each channel has a `Sender` for sending messages and a
+`Receiver` for receiving them.
+
+`async-hatch` is a channel that can hold one message at a time. It is
+small, easy to use, feature rich and *very* fast.
+
+Summary:
+
+* Easy, convenient, powerful API.
+* Small, low-dependency, fast to compile.
+* Blazing fast! See `Performance` section below.
+* Full no-std support (with or without an allocator!).
 
 Features:
 
-* Blazing fast! See `Performance` section below.
-* Tiny code, only one dependency and a lightning quick build.
-* Complete `no_std` support (with `alloc` for `Arc`).
-* Unique feature: sender may wait for a receiver to be waiting.
+* Sender can wait for Receiver to listen (lazy send).
+* 
 
 ## Usage
 
+Simple example:
+
 ```rust
-#[test]
-fn success_one_thread() {
-    let (s,r) = oneshot::<bool>();
-    assert_eq!((), s.send(true).unwrap());
-    assert_eq!(Ok(true), future::block_on(r));
+async fn simple() {
+  let (mut s, mut r) = async_hatch::hatch::<i32>();
+  s.send(42).now();
+  assert_eq!(r.receive().await, Ok(42));
+  s.send(420).now();
+  assert_eq!(r.receive().await, Ok(420));
 }
 ```
 
+While the defaults will suit most people, there are many ways to use
+`async-hatch` - it's a great building block for *lots* of async
+patterns!
+
+Hatches come with recovery support. When side closes, the other side
+may create a new peer:
+
+```
+async fn recovery() {
+  let (s, mut r) = async_hatch::hatch::<i32>();
+  mem::drop(r);
+  assert_eq!(s.send(42).now(), Err(SendError::Closed(42)))
+  let r = s.recycle();
+  mem::drop(s);
+  assert_eq!(r.receive().await, Err(Closed));
+  let s = r.recycle();
+}
+```
+
+In overwrite mode, the `Sender` can overwrite an existing
+message. This is useful if you only care about the most recent value:
+
+```rust
+async fn sender_overwrite() {
+  let (mut s, mut r) = async_hatch::hatch::<i32>();
+  s.send(42).now();
+  assert_eq!(s.set_overwrites(true).send(420).now(), Ok(()));
+  assert_eq!(r.receive().await, Ok(420));
+}
+```
+
+### Managing memory yourself
+
+
+* `RECLAIMS` (`set_reclaims`)
+  
+  This flag is checked when we observe the other side has closed and
+  `RECYCLES` is not set (i.e. during cleanup). It has no effect if the
+  hatch is backed by a `Box`, only if you are managing the memory yourself.
+  
+  A `true` indicates that we should stamp the atomic flags in the
+  `Hatch` with a special `RECLAIMABLE` flag indicating that it is no
+  longer in use. 
+
+
+
+### Crate features
+
+Default features: `alloc`, `async`, `spin_loop_hint`
+
+`alloc`: enables boxes via the global allocator.
+`async`: enables async features.
+`spin_loop_hint`: enables calling `core::hint::spin_loop` in spin loops.
+
+You probably want to leave these as they are. However...
+
+* Disabling `alloc` will let you compile without a global allocator at
+  the cost of convenience.
+* Disabling `async` makes closing slightly cheaper at the cost of all
+  async functionality.
+* Disabling `spin_loop_hint` will probably increase your power
+  consumption and is only advised for unusual circumstances. As a
+  general rule, contention on two-party channels is already low, so we
+  expect spinning to be minimal.
+
 ## Performance
 
-async-oneshot comes with a benchmark suite which you can run with
-`cargo bench`.
+tl; dr: probably strictly faster than whatever you're using right now.
 
-All benches are single-threaded and take double digit nanoseconds on
-my machine. async benches use `futures_lite::future::block_on` as an
-executor.
+This library has been carefully optimised to achieve excellent
+performance. It has extra features that can enable you to squeeze even
+more performance out of it in some situations.
 
-### Numbers from my machine
+### Performance Tips
 
-Here are benchmark numbers from my primary machine, a Ryzen 9 3900X
-running alpine linux 3.12 that I attempted to peg at maximum cpu:
+Note: we are very very fast. We are probably not your bottleneck.
+
+* Make use of the ability to reuse and recycle - they're cheaper than
+  calling the destructors.
+* Setting `closes(true)` before your last (or only!) operation makes
+  the destructor cheaper.
+* The unsafe API allows you to gain more performance in some
+  situations by reducing synchronisation. Much of it is only useful in
+  the presence of external synchronisation or by exploiting knowledge
+  of your program's structure.
+
+### Microbenchmarks
+
+Microbenchmarks are terrible. You can really only use them as a vague
+indication of performance and to guide library design. If you need
+more than this, benchmark production workloads!
+
+Nonetheless, here are some incredibly unscientific numbers from my
+primary dev machine, a Ryzen 9 3900X running alpine linux edge.
 
 ```
-create_destroy          time:   [51.596 ns 51.710 ns 51.835 ns]
-send/success            time:   [13.080 ns 13.237 ns 13.388 ns]
-send/closed             time:   [25.304 ns 25.565 ns 25.839 ns]
-try_recv/success        time:   [26.136 ns 26.246 ns 26.335 ns]
-try_recv/empty          time:   [10.764 ns 11.161 ns 11.539 ns]
-try_recv/closed         time:   [27.048 ns 27.159 ns 27.248 ns]
-async.recv/success      time:   [30.532 ns 30.774 ns 31.011 ns]
-async.recv/closed       time:   [28.112 ns 28.208 ns 28.287 ns]
-async.wait/success      time:   [56.449 ns 56.603 ns 56.737 ns]
-async.wait/closed       time:   [34.014 ns 34.154 ns 34.294 ns]
+
 ```
 
-In short, we are very fast. Close to optimal, I think.
+Note: I had emacs and firefox and various things open and i'm using an
+ondemand cpu scheduler, you could do better with this hardware!
 
-### Compared to other libraries
+### Implementation notes
 
-The oneshot channel in `futures` isn't very fast by comparison.
+Our performance largely derives from the following:
 
-Tokio put up an excellent fight and made us work hard to improve. In
-general I'd say we're slightly faster overall, but it's incredibly
-tight.
+* Fixed size of shared storage:
+  * 1 value, 2 wakers
+* Minimal synchronisation:
+  * Single atomic for refcount and lock.
+  * All ops are sub-CAS, sub-SeqCst.
+  * Maximise use of local state
+  * Spinlocks and short critical sections with minimal branching.
 
-## Note on safety
+Some of this falls out quite naturally from the basic problem
+structure, some of it's just careful design.
 
-This crate uses UnsafeCell and manually synchronises with atomic
-bitwise ops for performance. We believe it is correct, but we
-would welcome more eyes on it.
+On top of this, we wanted to be able to support situational
+performance - extra performance you can tap into if your situation
+permits it:
 
-# See Also
-
-* [async-oneshot-local](https://github.com/irrustible/async-oneshot-local) (single threaded)
-* [async-spsc](https://github.com/irrustible/async-spsc) (SPSC)
-* [async-channel](https://github.com/stjepang/async-channel) (MPMC)
-
-## Note on benchmarking
-
-The benchmarks are synthetic and a bit of fun.
-
-## Changelog
-
-### v0.5.0
-
-Breaking changes:
-
-* Make `Sender.send()` only take a mut ref instead of move.
-
-### v0.4.2
-
-Improvements:
-
-* Added some tests to cover repeated fix released in last version.
-* Inline more aggressively for some nice benchmark boosts.
-
-### v0.4.1
-
-Fixes:
-
-* Remove some overzealous `debug_assert`s that caused crashes in
-  development in case of repeated waking. Thanks @nazar-pc!
-
-Improvements:
-
-* Better benchmarks, based on criterion.
-
-### v0.4.0
-
-Breaking changes:
-
-* `Sender.wait()`'s function signature has changed to be a non-`async
-  fn` returning an `impl Future`. This reduces binary size, runtime
-  and possibly memory usage too. Thanks @zserik!
-
-Fixes:
-
-* Race condition where the sender closes in a narrow window during
-  receiver poll and doesn't wake the Receiver. Thanks @zserik!
-
-Improvements:
-
- * Static assertions. Thanks @zserik!
-
-### v0.3.3
-
-Improvements:
-
-* Update `futures-micro` and improve the tests
-
-### v0.3.2
-
-Fixes:
-
-* Segfault when dropping receiver. Caused by a typo, d'oh! Thanks @boardwalk!
-
-### v0.3.1
-
-Improvements:
-
-* Remove redundant use of ManuallyDrop with UnsafeCell. Thanks @cynecx!
-
-### v0.3.0
-
-Improvements:
-
-* Rewrote, benchmarked and optimised.
-
-### v0.2.0
-
-* First real release.
+* Reuse or recycling may allow you to avoid the synchronisation cost
+  of the destructors.
+* Externally managed memory support provides full allocator control.
+* Extensive unsafe API for when your situation permits avoiding checks
+  and synchronisation.
 
 ## Copyright and License
 
-Copyright (c) 2020 James Laver, async-oneshot contributors.
+Copyright (c) 2021 James Laver, async-hatch contributors.
 
-This Source Code Form is subject to the terms of the Mozilla Public
-License, v. 2.0. If a copy of the MPL was not distributed with this
-file, You can obtain one at http://mozilla.org/MPL/2.0/.
+[Licensed](LICENSE) under Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0),
+with LLVM Exceptions (https://spdx.org/licenses/LLVM-exception.html).
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+licensed as above, without any additional terms or conditions.

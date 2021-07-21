@@ -1,28 +1,28 @@
 [package]
-name = "async-oneshot"
-version = "0.5.0"
-description = "A fast, small, full-featured, async-aware oneshot channel."
-keywords = ["oneshot", "channel", "promise"]
+name = "async-hatch"
+version = "0.6.0"
+description = "Easy-to-use single-message async channel. Formerly async-oneshot."
+keywords = ["spsc", "oneshot", "channel", "message", "promise"]
 categories = ["asynchronous", "concurrency", "data-structures", "no-std"]
 authors = ["James Laver <james.laver@gmail.com>"]
-homepage = "https://github.com/irrustible/async-oneshot"
-repository = "https://github.com/irrustible/async-oneshot"
-documentation = "https://docs.rs/async-oneshot"
-license = "MPL-2.0"
+homepage = "https://github.com/irrustible/async-hatch"
+repository = "https://github.com/irrustible/async-hatch"
+documentation = "https://docs.rs/async-hatch"
+license = "Apache-2.0"
 edition = "2018"
 readme = "README.md"
 resolver = "2"
 
 [features]
-# alloc = [] # coming eventually - no alloc support.
-async = ["futures-micro", "pin-project-lite"] #, "alloc" ]
-# nightly = ["paste"]
-std = []
-default = ["async", "std"]
-# default = ["async", "std", "nightly"]
+default = ["async", "alloc", "spin_loop_hint"]
+alloc = [] # permit use of an allocator
+async = ["futures-micro", "pin-project-lite"]
+spin_loop_hint = [] # use core::hint::spin_loop in wait loops
 
 [dev-dependencies]
-wookie = "0.1"
+# wookie = "0.1.1"
+wookie = { path = "../wookie" }
+rayon = "1.5.1"
 
 [dependencies.futures-micro]
 version = "0.5.0"
@@ -32,15 +32,20 @@ optional = true
 version = "0.2.6"
 optional = true
 
-# [dependencies.paste]
-# version = "1.0.5"
-# optional = true
+# benchmarks support. because criterion is quite large and you can't
+# make dev dependencies optional.
 
-# benchmarks support - we would make this optional but we can't - thanks cargo!
-# [dev-dependencies.criterion]
-# version = "0.3.4"
-# features = ["real_blackbox"]
+[dev-dependencies.criterion]
+version = "0.3.4"
+features = ["real_blackbox"]
+
+[[bench]]
+name = "boxed"
+harness = false
 
 # [[bench]]
-# name = "oneshot"
+# name = "ptr"
+# harness = false
+# [[bench]]
+# name = "ref"
 # harness = false
