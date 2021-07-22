@@ -89,7 +89,7 @@ impl<'a, T> Receiver<'a, T> {
     /// Gets the value of the `close_on_receive` option. the [`Receiver`] docs for an explanation.
     pub fn get_close_on_receive(&self) -> bool { any_flag(self.flags, CLOSE_ON_SUCCESS) }
 
-    /// Sets the `close_on_receive` flag. See the [`Receiver`] docs for an explanation.
+    /// Sets the `close_on_receive` option. See the [`Receiver`] docs for an explanation.
     pub fn close_on_receive(mut self, on: bool) -> Self {
         self.flags = toggle_flag(self.flags, CLOSE_ON_SUCCESS, on);
         self
@@ -174,7 +174,7 @@ impl<'a, 'b, T> Receiving<'a, 'b, T> {
     /// Gets the value of the `close_on_receive` option. the [`Receiving`] docs for an explanation.
     pub fn get_close_on_receive(&self) -> bool { any_flag(self.flags, CLOSE_ON_SUCCESS) }
 
-    /// Sets the `close_on_receive` flag. See the [`Receiving`] docs for an explanation.
+    /// Sets the `close_on_receive` option. See the [`Receiving`] docs for an explanation.
     pub fn close_on_receive(mut self, on: bool) -> Self {
         self.flags = toggle_flag(self.flags, CLOSE_ON_SUCCESS, on);
         self
@@ -238,6 +238,7 @@ impl<'a, 'b, T> Receiving<'a, 'b, T> {
                 if let Some(hatch) = receiver.hatch {
                     // Take a lock so we can access the innards
                     let flags = hatch.lock();
+                    // We're going to take these whether we locked or closed.
                     let shared = unsafe { &mut *hatch.inner.get() };
                     let value = shared.value.take();
                     if any_flag(flags, S_CLOSE) {
@@ -264,11 +265,36 @@ impl<'a, 'b, T> Receiving<'a, 'b, T> {
 
     // pin-project-lite does not let us define a destructor.
     // https://github.com/taiki-e/pin-project-lite/issues/62#issuecomment-884188885
+    #[inline(always)]
     unsafe fn project(self: Pin<&mut Self>) -> &mut Self {
         Pin::get_unchecked_mut(self)
     }
 }
 
+impl<'a, 'b, T> Drop for Receiving<'a, 'b, T> {
+    fn drop(&mut self) {
+        // we only need a Drop impl on async, but we want to keep it the same across the two
+        #[cfg(feature="async")]
+        if let Some(receiver) = self.receiver.take() {
+            // If we are not waiting, we don't need to do anythning.
+            if any_flag(self.flags, WAITING) {
+                if let Some(hatch) = receiver.hatch {
+                    // We'll need a lock as usual
+                    let flags = hatch.lock();
+                    if any_flag(flags, S_CLOSE) {
+                        // No need to release the lock
+                        receiver.flags |= LONELY;
+                    } else {
+                        // Our cleanup is to remove the waker. Also release the lock.
+                        let shared = unsafe { &mut *hatch.inner.get() };
+                        let _delay_drop = shared.receiver.take();
+                        hatch.flags.store(flags, orderings::STORE);
+                    }
+                }
+            }
+        }
+    }
+}
 #[cfg(feature="async")]
 impl<'a, 'b, T> Future for Receiving<'a, 'b, T> {
     type Output = Result<T, Closed>;
@@ -284,40 +310,36 @@ impl<'a, 'b, T> Future for Receiving<'a, 'b, T> {
                     let shared = unsafe { &mut *hatch.inner.get() };
                     let value = shared.value.take();
                     if any_flag(flags, S_CLOSE) {
-                        // No need to release the lock, just mark us
-                        // lonely, disable the destructor and return
-                        // the appropriate result.
-                        receiver.flags |= LONELY;
-                        this.receiver.take();
+                        // No need to release the lock or wake
+                        receiver.flags |= LONELY; // Stop trying to do things.
+                        this.receiver.take();     // Disable the destructor.
                         return Poll::Ready(value.ok_or(Closed));
-                    } else {
-                        let sender = shared.sender.take();
-                        let _delay_old_waker_drop = if value.is_some() {
-                            // We don't need to wait anymore
-                            let waker = shared.receiver.take();
-                            // We have exclusive access because even dropping takes a lock in async mode.
-                            // We branchlessly add the close flag if we are set to close on success.
-                            hatch.flags.store(flags | r_closes(this.flags), orderings::STORE);
-                            waker
-                        } else {
-                            // We need to wait. We can just restore the old flags.
-                            let waker = shared.receiver.replace(ctx.waker().clone());
-                            hatch.flags.store(flags, orderings::STORE);
-                            waker
-                        };
-                        // We have to wake the sender if they are waiting either because there is
-                        // new capacity (for `send`), or because we are now waiting (for `wait`).
-                        if let Some(waker) = sender { waker.wake(); }
-                        if let Some(v) = value {
-                            // If we just closed, we have to tidy up
-                            if any_flag(this.flags, CLOSE_ON_SUCCESS) {
-                                receiver.hatch.take(); // one to close the receiver.
-                                this.receiver.take();  // one to disable our destructor
-                            }
-                            return Poll::Ready(Ok(v))
-                        }
-                        return Poll::Pending;
                     }
+                    // Okay, we're good to go.
+                    let sender = shared.sender.take();
+                    if let Some(v) = value {
+                        // We don't need to wait anymore
+                        let _waker = shared.receiver.take();
+                        // We have exclusive access because even dropping takes a lock in async mode.
+                        // We branchlessly add the close flag if we are set to close on success.
+                        hatch.flags.store(flags | r_closes(this.flags), orderings::STORE);
+                        if any_flag(this.flags, CLOSE_ON_SUCCESS) {
+                            receiver.hatch.take(); // we just closed, tidy up
+                        }
+                        this.receiver.take(); // disable destructor
+                        if let Some(waker) = sender { waker.wake(); } // wake if necessary
+                        return Poll::Ready(Ok(v))
+                    } else {
+                        // We need to wait and unlock.
+                        let waker = shared.receiver.replace(ctx.waker().clone());
+                        // We have exclusive access because even dropping takes a lock in async mode.
+                        // We branchlessly add the close flag if we are set to close on success.
+                        hatch.flags.store(flags, orderings::STORE);
+                        this.flags |= WAITING;
+                        // We have to wake the sender
+                        if let Some(waker) = sender { waker.wake(); }
+                        return Poll::Pending;
+                    };
                 }
             }
         }

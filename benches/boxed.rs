@@ -63,11 +63,11 @@ pub fn send_now(c: &mut Criterion) {
                 // this is annoying because we have to get the
                 // receiver to close.
                 let (mut s, mut r) = hatch::<usize>();
-                let f = r.receive().close_on_receive(true);
-                woke!(f);
-                s.send(42).now().unwrap();
-                unsafe {
-                    f.as_mut().poll();
+                {
+                    let f = r.receive().close_on_receive(true);
+                    woke!(f);
+                    s.send(42).now().unwrap();
+                    unsafe { f.as_mut().poll(); }
                 }
                 (s, r)
             },
@@ -82,11 +82,10 @@ pub fn send_now(c: &mut Criterion) {
                 // this is annoying because we have to get the
                 // receiver to close.
                 let (mut s, mut r) = hatch::<usize>();
-                let f = r.receive().close_on_receive(true);
-                woke!(f);
-                s.send(42).now().unwrap();
-                unsafe {
-                    f.as_mut().poll();
+                {
+                    woke!(f: r.receive().close_on_receive(true));
+                    s.send(42).now().unwrap();
+                    unsafe { f.as_mut().poll(); }
                 }
                 s.send(42).now();
                 (s, r)
@@ -135,11 +134,10 @@ pub fn send_now_closing(c: &mut Criterion) {
                 // this is annoying because we have to get the
                 // receiver to close.
                 let (mut s, mut r) = hatch::<usize>();
-                let f = r.receive().close_on_receive(true);
-                woke!(f);
-                s.send(42).now();
-                unsafe {
-                    f.as_mut().poll();
+                {
+                    woke!(f: r.receive().close_on_receive(true));
+                    s.send(42).now();
+                    unsafe { f.as_mut().poll(); }
                 }
                 (s, r)
             },
@@ -227,8 +225,7 @@ pub fn receive_await(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || hatch::<usize>(),
             |(_, ref mut r)| {
-                let f = r.receive();
-                woke!(f);
+                woke!(f: r.receive());
                 unsafe { f.as_mut().poll() };
             },
             BatchSize::SmallInput
@@ -243,8 +240,7 @@ pub fn receive_await(c: &mut Criterion) {
                 (s, r)
             },
             |(_, ref mut r)| {
-                let f = r.receive();
-                woke!(f);
+                woke!(f: r.receive());
                 unsafe { f.as_mut().poll() };
             },
             BatchSize::SmallInput
@@ -255,8 +251,7 @@ pub fn receive_await(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || hatch::<usize>().1,
             |ref mut r| {
-                let f = r.receive();
-                woke!(f);
+                woke!(f: r.receive());
                 unsafe { f.as_mut().poll() };
             },
             BatchSize::SmallInput
@@ -271,8 +266,7 @@ pub fn receive_await(c: &mut Criterion) {
                 (s, r)
             },
             |(_, ref mut r)| {
-                let f = r.receive();
-                woke!(f);
+                woke!(f: r.receive());
                 unsafe { f.as_mut().poll() };
             },
             BatchSize::SmallInput
@@ -287,8 +281,7 @@ pub fn receive_await(c: &mut Criterion) {
                 r
             },
             |ref mut r| {
-                let f = r.receive();
-                woke!(f);
+                woke!(f: r.receive());
                 unsafe { f.as_mut().poll() };
             },
             BatchSize::SmallInput
@@ -300,14 +293,14 @@ pub fn receive_await(c: &mut Criterion) {
             || {
                 let (mut send, mut recv) = hatch::<usize>();
                 send.send(42).close_on_send(true).now().unwrap();
-                let f = recv.receive();
-                woke!(f);
-                unsafe { f.as_mut().poll() };
+                {
+                    woke!(f: recv.receive());
+                    unsafe { f.as_mut().poll() };
+                }
                 (send, recv)
             },
             |(_, ref mut recv)| {
-                let f = recv.receive();
-                woke!(f);
+                woke!(f: recv.receive());
                 unsafe { f.as_mut().poll() };
             },
             BatchSize::SmallInput
@@ -315,45 +308,48 @@ pub fn receive_await(c: &mut Criterion) {
     );
 }
 
-// pub fn wait(c: &mut Criterion) {
-//     let mut group = c.benchmark_group("async.wait");
-//     group.bench_function(
-//         "already_waiting",
-//         |b| b.iter_batched(
-//             || (oneshot::<usize>(), waker_fn(|| ())),
-//             |((mut send, mut recv),waker)| {
-//                 let mut f = Box::pin(
-//                     or!(async { recv.recv().await.unwrap(); 1 },
-//                         async { send.wait().await.unwrap(); 2 }
-//                     )
-//                 );
-//                 let mut ctx = Context::from_waker(&waker);
-//                 assert_eq!(f.poll(&mut ctx), Poll::Ready(2));
-//             },
-//             BatchSize::SmallInput
-//         )
-//     );
-//      group.bench_function(
-//         "will_wait",
-//         |b| b.iter_batched(
-//             || oneshot::<usize>(),
-//             |(mut send, mut recv)| block_on(
-//                 or!(async { send.wait().await.unwrap(); 2 },
-//                     async { recv.recv().await.unwrap(); 1 }
-//                 )
-//             ),
-//             BatchSize::SmallInput
-//         )
-//     );
-//     group.bench_function(
-//         "closed",
-//         |b| b.iter_batched(
-//             || oneshot::<usize>().0,
-//             |mut send| block_on(send.wait()).unwrap_err(),
-//             BatchSize::SmallInput
-//         )
-//     );
-// }
+// it turns out to be quite hard to write a lot of these :/
+pub fn wait(c: &mut Criterion) {
+    let mut group = c.benchmark_group("boxed/wait");
+    group.bench_function(
+        "first_poll/unwaited",
+        |b| b.iter_batched_ref(
+            || hatch::<usize>(),
+            |(ref mut s, _)| {
+                woke!(f: s.wait());
+                unsafe { f.poll() }
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "dropped",
+        |b| b.iter_batched_ref(
+            || hatch::<usize>().0,
+            |mut send| {
+                woke!(f: send.wait());
+                unsafe { f.poll() }
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "closed",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, mut r) = hatch::<usize>();
+                s.send(42).now().unwrap();
+                r.receive().close_on_receive(true).now().unwrap();
+                (s, r)
+            },
+            |(ref mut s, _)| {
+                woke!(f: s.wait());
+                unsafe { f.poll() }
+            },
+            BatchSize::SmallInput
+        )
+    );
+}
 
 criterion_group!(
     benches,
@@ -361,7 +357,7 @@ criterion_group!(
     send_now,
     send_now_closing,
     receive_now,
-    receive_await
-    // wait,
+    receive_await,
+    wait,
 );
 criterion_main!(benches);

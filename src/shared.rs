@@ -201,21 +201,21 @@ pub const S_CLOSE: Flags = 1 << 2;
 /// Whether we should close the hatch during the next successful send/receive operation.
 pub const CLOSE_ON_SUCCESS: Flags = 1 << 3;
 
-// /// Whether we should close the hatch during the next unsuccessful send/receive operation
-// /// that does not leave the channel closed. Ignored by `Future` impls
-// pub const CLOSE_ON_FAILURE: Flags = 1 << 4
-
 /// Whether we should mark the hatch as ready for reuse when we clean it up. Allows
 /// external memory management to reclaim closed hatches.
 ///
 /// Has no effect if the hatch is backed by a box.
-pub const MARK_ON_DROP: Flags = 1 << 5;
+pub const MARK_ON_DROP: Flags = 1 << 4;
 
 /// (Sender) Whether a message can be overwritten
-pub const OVERWRITE: Flags = 1 << 6;
+pub const OVERWRITE: Flags = 1 << 5;
 
 /// When set, we know the other side is closed and we have exclusive access.
-pub const LONELY:  Flags = 1 << 7;
+pub const LONELY:  Flags = 1 << 6;
+
+/// When set, we know we have set a waker. It doesn't mean it's definitely still there,
+/// but it *might* be and thus we have some interest in cleaning it up.
+pub const WAITING: Flags = 1 << 7;
 
 /// By default, we don't set any options
 pub const DEFAULT: Flags = 0;

@@ -1,7 +1,7 @@
 [package]
 name = "async-hatch"
 version = "1.0.0-rc.0"
-description = "Single occupancy SPSC async channel. Easy to use, very fast and flexible. Formerly async-oneshot."
+description = "Single message (at a time) async spsc channel. Easy to use, very fast and flexible. Formerly async-oneshot."
 keywords = ["spsc", "oneshot", "channel", "message", "promise"]
 categories = ["asynchronous", "concurrency", "data-structures", "no-std"]
 authors = ["James Laver <james.laver@gmail.com>"]
@@ -17,14 +17,13 @@ default = ["alloc", "async", "spin_loop_hint"]
 alloc = [] # permit use of an allocator
 async = [] # async support
 spin_loop_hint = [] # use core::hint::spin_loop in wait loops
-bench = ["criterion"] # because you can't make dev-dependencies optional
+bench = ["criterion"] # because you can't make dev-dependencies optional and it's huge
 
 [dev-dependencies]
 futures-micro = "0.5.0"
-# wookie = "0.2.0"
-wookie = { path = "../wookie" }
+wookie = "0.2.0"
 
-# because you can't make dev-dependencies optional
+# because you can't make dev-dependencies optional and it's huge
 [dependencies.criterion]
 version = "0.3.4"
 features = ["real_blackbox"]

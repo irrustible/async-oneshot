@@ -6,13 +6,13 @@ use core::pin::Pin;
 use async_hatch::*;
 
 pub fn create_destroy(c: &mut Criterion) {
-    c.bench_function(
-        "ref/create_destroy",
-        |b| b.iter_batched(|| (), |_| {
-            let mut h = Hatch::default();
-            ref_hatch::<usize>(unsafe { Pin::new_unchecked(&mut h) })
-        }, BatchSize::SmallInput)
-    );
+    // c.bench_function(
+    //     "ref/create_destroy",
+    //     |b| b.iter_batched(|| (), |_| {
+    //         let mut h = Hatch::default();
+    //         ref_hatch::<usize>(unsafe { Pin::new_unchecked(&mut h) })
+    //     }, BatchSize::SmallInput)
+    // );
 }
 
 // #[allow(unused_must_use)]

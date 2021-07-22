@@ -4,8 +4,7 @@
 [![Package](https://img.shields.io/crates/v/async-hatch.svg)](https://crates.io/crates/async-hatch)
 [![Documentation](https://docs.rs/async-hatch/badge.svg)](https://docs.rs/async-hatch)
 
-Single occupancy SPSC async channel. Easy to use, very fast and
-flexible. Formerly async-oneshot.
+Single message (at a time) async spsc channel. Easy to use, very fast and flexible. Formerly async-oneshot.
 
 ## Status: beta
 
@@ -76,8 +75,6 @@ async fn sender_overwrite() {
 
 It's also a cheap way of signalling exit: just drop!
 
-### Managing memory yourself
-
 ### Crate features
 
 Default features: `alloc`, `async`, `spin_loop_hint`
@@ -96,6 +93,10 @@ You probably want to leave these as they are. However...
   
 If you are disabling `alloc` or `async` with `no-default-features`, you should take care to reenable
 the `spin_loop_hint` feature unless you're one of the quite rare users who needs it.
+
+### Managing memory yourself
+
+
 
 ## Performance
 
@@ -171,13 +172,18 @@ The trick we use to enable no-alloc support is to use a `holder`
 object for references to the hatch. It's a simple enum, we just have
 to do different things depending on whether we manage the memory or not.
 
+Miri seems to have gotten quite good at detecting silly errors, although it
+takes about 3 minutes to run a `cargo miri test` on my machine :/
+
 ## TODO
 
-* Finish the implementation of `Wait`.
-* Recovery should attempt to check the atomic.
-* Operation objects should have Drop impls.
-* Operation object Drop impls might benefit from a "set a waker" flag under async.
-* Lots of test and benchmarks improvements.
+* Recovery should attempt to check the atomic rather than just failing if we aren't lonely.
+* Port the tests and benchmarks for:
+  * Refs
+  * Pointers
+  * Boxes without async
+  * Refs without async
+  * Pointers without async
 * Github actions setup.
 
 ## Copyright and License
