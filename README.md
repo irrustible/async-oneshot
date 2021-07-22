@@ -4,7 +4,8 @@
 [![Package](https://img.shields.io/crates/v/async-hatch.svg)](https://crates.io/crates/async-hatch)
 [![Documentation](https://docs.rs/async-hatch/badge.svg)](https://docs.rs/async-hatch)
 
-Easy-to-use single-message async channel. Formerly async-oneshot.
+Single occupancy SPSC async channel. Easy to use, very fast and
+flexible. Formerly async-oneshot.
 
 ## Status: beta
 
@@ -13,27 +14,21 @@ correctness of. We expect to do a 1.0 release soon.
 
 ## Introduction
 
-`async-hatch` is a swiss army knife for synchronisation between two
-threads or async tasks.
-
-`channels` are a popular way of passing messages between async
-tasks. Each channel has a `Sender` for sending messages and a
-`Receiver` for receiving them.
+`channels` are a popular way of passing messages between async tasks. Each channel has a `Sender`
+for sending messages and a `Receiver` for receiving them.
 
 `async-hatch` is a channel that can hold one message at a time. It is
 small, easy to use, feature rich and *very* fast.
 
-Summary:
-
-* Easy, convenient, powerful API.
-* Small, low-dependency, fast to compile.
-* Blazing fast! See `Performance` section below.
-* Full no-std support (with or without an allocator!).
-
 Features:
 
-* Sender can wait for Receiver to listen (lazy send).
-* 
+* Send messages between two async tasks, two threads or an async task and a thread.
+* Sender may wait for Receiver to listen (lazy send).
+* Sender may overwrite an existing message.
+* Blazing fast! See `Performance` section below for some indication.
+* Small, zero-dependency, readable code.
+* Full no-std support (with or without an allocator!).
+* Full manual memory management support.
 
 ## Usage
 
@@ -49,51 +44,39 @@ async fn simple() {
 }
 ```
 
-While the defaults will suit most people, there are many ways to use
-`async-hatch` - it's a great building block for *lots* of async
-patterns!
+While the defaults will suit most people, there are many ways to use `async-hatch` - it's a great
+building block for *lots* of async patterns!
 
-Hatches come with recovery support. When side closes, the other side
-may create a new peer:
+Hatches come with recovery support. When one side closes, the other
+side may replace them:
 
 ```
 async fn recovery() {
   let (s, mut r) = async_hatch::hatch::<i32>();
-  mem::drop(r);
+  core::mem::drop(r);
   assert_eq!(s.send(42).now(), Err(SendError::Closed(42)))
   let r = s.recycle();
-  mem::drop(s);
+  core::mem::drop(s);
   assert_eq!(r.receive().await, Err(Closed));
   let s = r.recycle();
 }
 ```
 
-In overwrite mode, the `Sender` can overwrite an existing
+In `overwrite` mode, the `Sender` can overwrite an existing
 message. This is useful if you only care about the most recent value:
 
 ```rust
 async fn sender_overwrite() {
   let (mut s, mut r) = async_hatch::hatch::<i32>();
   s.send(42).now();
-  assert_eq!(s.set_overwrites(true).send(420).now(), Ok(()));
+  assert_eq!(s.send(420).overwrite(true).now(), Ok(()));
   assert_eq!(r.receive().await, Ok(420));
 }
 ```
 
+It's also a cheap way of signalling exit: just drop!
+
 ### Managing memory yourself
-
-
-* `RECLAIMS` (`set_reclaims`)
-  
-  This flag is checked when we observe the other side has closed and
-  `RECYCLES` is not set (i.e. during cleanup). It has no effect if the
-  hatch is backed by a `Box`, only if you are managing the memory yourself.
-  
-  A `true` indicates that we should stamp the atomic flags in the
-  `Hatch` with a special `RECLAIMABLE` flag indicating that it is no
-  longer in use. 
-
-
 
 ### Crate features
 
@@ -105,35 +88,31 @@ Default features: `alloc`, `async`, `spin_loop_hint`
 
 You probably want to leave these as they are. However...
 
-* Disabling `alloc` will let you compile without a global allocator at
-  the cost of convenience.
-* Disabling `async` makes closing slightly cheaper at the cost of all
-  async functionality.
-* Disabling `spin_loop_hint` will probably increase your power
-  consumption and is only advised for unusual circumstances. As a
-  general rule, contention on two-party channels is already low, so we
+* Disabling `alloc` will let you compile without a global allocator at the cost of convenience.
+* Disabling `async` makes closing slightly cheaper at the cost of all async functionality.
+* Disabling `spin_loop_hint` will probably increase your power consumption and is only advised for
+  unusual circumstances. As a general rule, contention on two-party channels is already low, so we
   expect spinning to be minimal.
+  
+If you are disabling `alloc` or `async` with `no-default-features`, you should take care to reenable
+the `spin_loop_hint` feature unless you're one of the quite rare users who needs it.
 
 ## Performance
 
 tl; dr: probably strictly faster than whatever you're using right now.
 
-This library has been carefully optimised to achieve excellent
-performance. It has extra features that can enable you to squeeze even
-more performance out of it in some situations.
+This library has been carefully optimised to achieve excellent performance. It has extra features
+that can enable you to squeeze even more performance out of it in some situations.
 
 ### Performance Tips
 
 Note: we are very very fast. We are probably not your bottleneck.
 
-* Make use of the ability to reuse and recycle - they're cheaper than
-  calling the destructors.
-* Setting `closes(true)` before your last (or only!) operation makes
-  the destructor cheaper.
-* The unsafe API allows you to gain more performance in some
-  situations by reducing synchronisation. Much of it is only useful in
-  the presence of external synchronisation or by exploiting knowledge
-  of your program's structure.
+* Make use of the ability to reuse and recycle - they're cheaper than calling the destructors.
+* Setting `closes(true)` before your last (or only!) operation makes the destructor cheaper.
+* The unsafe API allows you to gain more performance in some situations by reducing
+  synchronisation. Much of it is only useful in the presence of external synchronisation or by
+  exploiting knowledge of your program's structure. Be careful and read the documentation.
 
 ### Microbenchmarks
 
@@ -151,7 +130,19 @@ primary dev machine, a Ryzen 9 3900X running alpine linux edge.
 Note: I had emacs and firefox and various things open and i'm using an
 ondemand cpu scheduler, you could do better with this hardware!
 
-### Implementation notes
+You may run the benchmarks yourself with:
+
+```shell
+cargo bench --features bench
+```
+
+To run them with async disabled:
+
+```shell
+cargo bench --no-default-features --features alloc,spin_loop_hint,bench
+```
+
+## Implementation notes
 
 Our performance largely derives from the following:
 
@@ -175,6 +166,19 @@ permits it:
 * Externally managed memory support provides full allocator control.
 * Extensive unsafe API for when your situation permits avoiding checks
   and synchronisation.
+
+The trick we use to enable no-alloc support is to use a `holder`
+object for references to the hatch. It's a simple enum, we just have
+to do different things depending on whether we manage the memory or not.
+
+## TODO
+
+* Finish the implementation of `Wait`.
+* Recovery should attempt to check the atomic.
+* Operation objects should have Drop impls.
+* Operation object Drop impls might benefit from a "set a waker" flag under async.
+* Lots of test and benchmarks improvements.
+* Github actions setup.
 
 ## Copyright and License
 

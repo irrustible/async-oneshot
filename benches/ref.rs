@@ -2,6 +2,7 @@ use criterion::*;
 // use futures_micro::or;
 // use futures_lite::future::{block_on, FutureExt};
 // use core::task::{Poll, Context};
+use core::pin::Pin;
 use async_hatch::*;
 
 pub fn create_destroy(c: &mut Criterion) {
@@ -9,7 +10,7 @@ pub fn create_destroy(c: &mut Criterion) {
         "ref/create_destroy",
         |b| b.iter_batched(|| (), |_| {
             let mut h = Hatch::default();
-            black_box(ref_hatch::<usize>(&mut h));
+            ref_hatch::<usize>(unsafe { Pin::new_unchecked(&mut h) })
         }, BatchSize::SmallInput)
     );
 }

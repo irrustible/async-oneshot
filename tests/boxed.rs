@@ -173,7 +173,6 @@ fn receive_send() {
             woke!(f);
             assert_eq!(Poll::Pending, f.as_mut().poll());
             assert_eq!(Poll::Pending, f.as_mut().poll());
-
             // The first one gets to finish instantly
             let g = s.send(42);
             woke!(g);
@@ -311,6 +310,14 @@ fn receive_empty_dropped() {
     }
 }
 
+
+
+
+
+
+
+
+
 // #[test]
 // fn wait_close() {
 //     let (mut s, r) = hatch::<bool>();
@@ -320,7 +327,7 @@ fn receive_empty_dropped() {
 //     unsafe {
 //         assert_eq!(f.as_mut().poll(), Poll::Pending);
 //         assert_eq!(f.count, 0);
-//         drop(r); // should trigger a wake
+//         drop(r); should trigger a wake
 //         assert_eq!(f.as_mut().poll(), Poll::Ready(Err(Closed)));
 //         assert_eq!(f.count(), 1);
 //     }
