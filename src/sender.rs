@@ -52,11 +52,7 @@ impl<'a, T> Sender<'a, T> {
     ///
     /// # Safety
     ///
-    /// To avoid logic errors, you must ensure no other (live) Sender exists and the hatch is not in
-    /// a dirty state (i.e. is new or has been reclaimed).
-    ///
-    /// There is a possible use after free during drop if the Hatch is managed by us (is a
-    /// SharedBoxPtr) and you allow a second live Sender to exist.
+    /// You must not permit multiple live senders to exist.
     #[inline(always)]
     pub(crate) unsafe fn new(hatch: Holder<'a, Hatch<T>>) -> Self {
         Sender { hatch: Some(hatch), flags: DEFAULT }
@@ -95,11 +91,7 @@ impl<'a, T> Sender<'a, T> {
     ///
     /// ## Safety
     ///
-    /// To avoid logic errors, you must ensure no other (live) Receiver exists and the hatch is not
-    /// in a dirty state (i.e. is new or hasn been reclaimed).
-    ///
-    /// There is a possible use after free during drop if the Hatch is managed by us (is a
-    /// SharedBoxPtr) and you allow a second live Receiver to exist).
+    /// You must not permit multiple live Receivers to exist.
     pub unsafe fn recover_unchecked(&mut self) -> Result<receiver::Receiver<'a, T>, Closed> {
         self.hatch.map(|h| {
             h.recycle(); // A release store
@@ -149,11 +141,7 @@ impl<'a, T> Sender<'a, T> {
     ///
     /// # Safety
     ///
-    /// To avoid logic errors, you must ensure no other (live) Sender exists and the hatch is not in
-    /// a dirty state (i.e. is new or has been reclaimed).
-    ///
-    /// There is a possible use after free during drop if the Hatch is managed by us (is a
-    /// SharedBoxPtr) and you allow a second live Sender to exist.
+    /// You must not permit multiple live senders to exist.
     pub unsafe fn leak(mut sender: Sender<T>) { sender.hatch.take(); }
 }
 

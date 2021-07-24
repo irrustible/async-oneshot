@@ -26,6 +26,7 @@ Features:
 * Sender may overwrite an existing message.
 * Blazing fast! See `Performance` section below for some indication.
 * Small, zero-dependency, readable code.
+* Uses no unstable features.
 * Full no-std support (with or without an allocator!).
 * Full manual memory management support.
 
@@ -125,7 +126,31 @@ Nonetheless, here are some incredibly unscientific numbers from my
 primary dev machine, a Ryzen 9 3900X running alpine linux edge.
 
 ```
-
+create_destroy                      27.866 ns
+send_now/empty                      11.604 ns
+send_now/full                       10.838 ns
+send_now/receiver_dropped           10.887 ns
+send_now/receiver_closed            10.927 ns
+send_now/lonely                     6.5098 ns
+send_now_closing/empty              11.551 ns
+send_now_closing/full               10.785 ns
+send_now_closing/receiver_dropped   10.630 ns
+send_now_closing/receiver_closed    10.801 ns
+receive_now/empty                   9.8392 ns
+receive_now/full                    8.9529 ns
+receive_now/empty_sender_dropped    5.9852 ns
+receive_now/full_sender_closed      9.4870 ns
+receive_now/full_sender_dropped     9.2406 ns
+receive_now/lonely                  2.5341 ns
+receive_await/empty                 14.924 ns
+receive_await/full                  9.3347 ns
+receive_await/empty_sender_dropped  7.4899 ns
+receive_await/full_sender_closed    7.6235 ns
+receive_await/full_sender_dropped   7.5182 ns
+receive_await/lonely                4.9252 ns
+wait/first_poll/unwaited            12.747 ns
+wait/dropped                        8.5824 ns
+wait/closed                         8.5531 ns
 ```
 
 Note: I had emacs and firefox and various things open and i'm using an
@@ -137,11 +162,12 @@ You may run the benchmarks yourself with:
 cargo bench --features bench
 ```
 
-To run them with async disabled:
+<!-- To run them with async disabled: -->
 
-```shell
-cargo bench --no-default-features --features alloc,spin_loop_hint,bench
-```
+<!-- We haven't written non-async benches yet -->
+<!-- ```shell -->
+<!-- cargo bench --no-default-features --features alloc,spin_loop_hint,bench -->
+<!-- ``` -->
 
 ## Implementation notes
 
@@ -152,7 +178,7 @@ Our performance largely derives from the following:
 * Minimal synchronisation:
   * Single atomic for refcount and lock.
   * All ops are sub-CAS, sub-SeqCst.
-  * Maximise use of local state
+  * Maximise use of local state.
   * Spinlocks and short critical sections with minimal branching.
 
 Some of this falls out quite naturally from the basic problem
@@ -164,26 +190,27 @@ permits it:
 
 * Reuse or recycling may allow you to avoid the synchronisation cost
   of the destructors.
-* Externally managed memory support provides full allocator control.
-* Extensive unsafe API for when your situation permits avoiding checks
-  and synchronisation.
+* Manual memory management support for full allocation control.
+* Extensive unsafe API with fewer checks.
 
-The trick we use to enable no-alloc support is to use a `holder`
-object for references to the hatch. It's a simple enum, we just have
-to do different things depending on whether we manage the memory or not.
+The trick we use to enable no-alloc support is to use a `holder` object for references to the
+hatch. It's a simple enum, inspired by `std::cow::Cow`, we just have to do different things
+depending on whether we manage the memory or not.
 
-Miri seems to have gotten quite good at detecting silly errors, although it
-takes about 3 minutes to run a `cargo miri test` on my machine :/
+Miri seems to have gotten quite good at detecting silly errors, although it takes about 3 minutes to
+run a `cargo miri test` on my machine :/ We're not sure if repetition helps miri detect things. If
+not we could cut the looping.
 
 ## TODO
 
 * Recovery should attempt to check the atomic rather than just failing if we aren't lonely.
-* Port the tests and benchmarks for:
-  * Refs
-  * Pointers
+* Port the tests for:
   * Boxes without async
   * Refs without async
   * Pointers without async
+* Port Benches:
+  * Refs
+  * Pointers
 * Github actions setup.
 
 ## Copyright and License

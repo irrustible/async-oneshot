@@ -1,3 +1,4 @@
+#![cfg(all(feature="alloc", feature="async"))]
 use async_hatch::*;
 use futures_micro::prelude::*;
 use core::mem::drop;

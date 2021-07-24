@@ -29,11 +29,7 @@ impl<'a, T> Receiver<'a, T> {
     ///
     /// ## Safety
     ///
-    /// To avoid logic errors, you must ensure no other (live) Receiver exists and the hatch is not
-    /// in a dirty state (i.e. is new or has been reclaimed).
-    ///
-    /// There is a possible use after free during drop if the Hatch is managed by us (is a
-    /// SharedBoxPtr) and you allow a second live Receiver to exist).
+    /// You must not permit multiple live receivers to exist.
     #[inline(always)]
     pub(crate) unsafe fn new(hatch: Holder<'a, Hatch<T>>) -> Self {
         Self { hatch: Some(hatch), flags: DEFAULT }
@@ -64,11 +60,7 @@ impl<'a, T> Receiver<'a, T> {
     ///
     /// ## Safety
     ///
-    /// To avoid logic errors, you must ensure no other (live) Receiver exists and the hatch is not
-    /// in a dirty state (i.e. is new or hasn been reclaimed).
-    ///
-    /// There is a possible use after free during drop if the Hatch is managed by us (is a
-    /// SharedBoxPtr) and you allow a second live Receiver to exist).
+    /// You must not permit multiple live Senders to exist.
     pub unsafe fn recover_unchecked(&mut self) -> Result<sender::Sender<'a, T>, Closed> {
         self.hatch.map(|h| {
             h.recycle(); // A release store
@@ -331,7 +323,7 @@ impl<'a, 'b, T> Future for Receiving<'a, 'b, T> {
                         return Poll::Ready(Ok(v))
                     } else {
                         // We need to wait and unlock.
-                        let waker = shared.receiver.replace(ctx.waker().clone());
+                        let _waker = shared.receiver.replace(ctx.waker().clone());
                         // We have exclusive access because even dropping takes a lock in async mode.
                         // We branchlessly add the close flag if we are set to close on success.
                         hatch.flags.store(flags, orderings::STORE);

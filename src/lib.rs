@@ -51,9 +51,7 @@ pub fn ref_hatch<T>(
 ///
 /// ## Safety
 ///
-/// There is a possible use after free during drop if the Hatch is
-/// managed by us (is a SharedBoxPtr) and you allow a second live
-/// Sender or Receiver to exist.
+/// You must not permit multiple live senders or receivers to exist.
 pub unsafe fn ref_hatch_unchecked<T>(
     hatch: &Hatch<T>
 ) -> (sender::Sender<T>, receiver::Receiver<T>) {
@@ -67,11 +65,8 @@ pub unsafe fn ref_hatch_unchecked<T>(
 ///
 /// # Safety
 ///
-/// There are two possible use after frees you must avoid:
-/// * If the provided pointer does not outlive lifetime `'a`.
-/// * If the Hatch is managed by us (is a SharedBoxPtr) and you allow
-///   a second live Sender or Receiver to exist.
-pub unsafe fn ptr_hatch<'a, T>(
+/// You must not permit multiple live senders or receivers to exist.
+pub unsafe fn borrowed_ptr_hatch<'a, T>(
     hatch: NonNull<Hatch<T>>
 ) -> (sender::Sender<'a, T>, receiver::Receiver<'a, T>) {
     let holder = Holder::BorrowedPtr(hatch);
