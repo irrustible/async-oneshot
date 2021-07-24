@@ -254,25 +254,29 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
                     // No need to release the lock, just set us lonely.
                     sender.flags |= LONELY;
                     return Err(SendError::Closed(value));
-                }
-                if any_flag(self.flags, OVERWRITE) || shared.value.is_none() {
+                } else {
                     let shared = unsafe { &mut *hatch.inner.get() };
-                    let value = shared.value.replace(value);
-                    // Dropping does not require taking a lock, so we can't just do a `store` as in
-                    // the async case. We compose a mask to xor with it that unlocks and may also
-                    // close.
-                    let mask = LOCK | s_closes(self.flags);
-                    let flags = hatch.flags.fetch_xor(mask, orderings::MODIFY);
-                    // All that was because they might close on us.
-                    if any_flag(flags, R_CLOSE) {
-                        sender.flags |= LONELY;
-                        return Err(SendError::Closed(value));
+                    if any_flag(self.flags, OVERWRITE) || shared.value.is_none() {
+                        let value = shared.value.replace(value);
+                        // Dropping does not require taking a lock, so we can't just do a `store` as in
+                        // the async case. We compose a mask to xor with it that unlocks and may also
+                        // close.
+                        let mask = LOCK | s_closes(self.flags);
+                        let flags = hatch.flags.fetch_xor(mask, orderings::MODIFY);
+                        // All that was because they might close on us.
+                        if any_flag(flags, R_CLOSE) {
+                            sender.flags |= LONELY;
+                            let value = shared.value.take().unwrap();
+                            return Err(SendError::Closed(value));
+                        } else {
+                            if any_flag(self.flags, CLOSE_ON_SUCCESS) { sender.hatch.take(); }
+                            return Ok(value)
+                        }
+                    } else {
+                        hatch.flags.store(flags, orderings::STORE);
+                        return Err(SendError::Existing(value))
                     }
-                    if any_flag(self.flags, CLOSE_ON_SUCCESS) { sender.hatch.take(); }
-                    return Ok(value)
                 }
-                hatch.flags.store(flags, orderings::STORE);
-                Err(SendError::Existing(value))
             }
         }
         Err(SendError::Closed(value))
@@ -419,6 +423,7 @@ impl<'a, 'b, T> Wait<'a, 'b, T> {
     }
 }
 
+#[cfg(feature="async")]
 impl<'a, 'b, T> Drop for Wait<'a, 'b, T> {
     // clean out the waker. essentially this makes our benchmarks worse but should improve real
     // world performance, since we assume that an async executor can't match our performance.

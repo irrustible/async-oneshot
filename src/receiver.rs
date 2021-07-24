@@ -35,7 +35,6 @@ impl<'a, T> Receiver<'a, T> {
         Self { hatch: Some(hatch), flags: DEFAULT }
     }
 
-    #[cfg(feature="async")]
     #[must_use = "Receiving does nothing unless you call `.now` or poll it as a Future."]
     /// Returns a disposable object for a single receive operation.
     pub fn receive<'b>(&'b mut self) -> Receiving<'a, 'b, T> {
@@ -196,7 +195,7 @@ impl<'a, 'b, T> Receiving<'a, 'b, T> {
                             // `store` as in the async case. We compose a mask to xor with it that
                             // unlocks and may also close.
                             let mask = LOCK | r_closes(self.flags);
-                            let flags = hatch.flags.fetch_xor(flags, orderings::MODIFY);
+                            let flags = hatch.flags.fetch_xor(mask, orderings::MODIFY);
                             // And finally we check the sender didn't close in between.
                             if any_flag(flags, S_CLOSE) { receiver.flags |= LONELY; }
                         } else {
@@ -205,10 +204,10 @@ impl<'a, 'b, T> Receiving<'a, 'b, T> {
                             // And check the sender didn't close again.
                             if any_flag(flags, S_CLOSE) {
                                 receiver.flags |= LONELY;
-                                return ret.map(Some).ok_or(Closed);
+                                return value.map(Some).ok_or(Closed);
                             }
                         }
-                        return Ok(ret);
+                        return Ok(value);
                     }                    
                 }
             }
