@@ -22,7 +22,7 @@ fn sendnow_dropped() {
     for _ in 0..1_000 {
         let hatch = Hatch::default();
         pin!(hatch);
-        let (mut s, mut r) = ref_hatch::<i32>(hatch.as_mut());
+        let (mut s, r) = ref_hatch::<i32>(hatch.as_mut());
         drop(r);
         assert_eq!(Err(SendError::Closed(42)), s.send(42).now());
     }
@@ -71,7 +71,7 @@ fn receivenow_full_dropped() {
     for _ in 0..1_000 {
         let hatch = Hatch::default();
         pin!(hatch);
-        let (mut s, mut r) = ref_hatch::<i32>(hatch.as_mut());
+        let (s, mut r) = ref_hatch::<i32>(hatch.as_mut());
         drop(s);
         // The Receiver doesn't know how lonely they really are.
         assert_eq!(Err(Closed), r.receive().now());
@@ -109,7 +109,7 @@ fn receivenow_empty_dropped() {
     for _ in 0..1_000 {
         let hatch = Hatch::default();
         pin!(hatch);
-        let (mut s, mut r) = ref_hatch::<i32>(hatch.as_mut());
+        let (s, mut r) = ref_hatch::<i32>(hatch.as_mut());
         drop(s);
         assert_eq!(Err(Closed), r.receive().now());
     }

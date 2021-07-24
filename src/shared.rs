@@ -215,6 +215,7 @@ pub const LONELY:  Flags = 1 << 6;
 
 /// When set, we know we have set a waker. It doesn't mean it's definitely still there,
 /// but it *might* be and thus we have some interest in cleaning it up.
+#[cfg(feature="async")]
 pub const WAITING: Flags = 1 << 7;
 
 /// By default, we don't set any options

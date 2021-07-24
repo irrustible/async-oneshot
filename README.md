@@ -204,11 +204,8 @@ not we could cut the looping.
 ## TODO
 
 * Recovery should attempt to check the atomic rather than just failing if we aren't lonely.
-* Port the tests for:
-  * Boxes without async
-  * Refs without async
-  * Pointers without async
 * Port Benches:
+  * Sync boxes
   * Refs
   * Pointers
 * Github actions setup.

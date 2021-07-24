@@ -2,7 +2,6 @@
 use async_hatch::*;
 use core::mem::drop;
 use core::ptr::NonNull;
-use futures_micro::prelude::*;
 
 #[test]
 fn sendnow_full() {
@@ -26,7 +25,7 @@ fn sendnow_dropped() {
         for _ in 0..1_000 {
             let mut hatch = Hatch::default();
             let hatch = NonNull::from(&mut hatch);
-            let (mut s, mut r) = borrowed_ptr_hatch::<i32>(hatch);
+            let (mut s, r) = borrowed_ptr_hatch::<i32>(hatch);
             drop(r);
             assert_eq!(Err(SendError::Closed(42)), s.send(42).now());
         }
@@ -83,7 +82,7 @@ fn receivenow_full_dropped() {
         for _ in 0..1_000 {
             let mut hatch = Hatch::default();
             let hatch = NonNull::from(&mut hatch);
-            let (mut s, mut r) = borrowed_ptr_hatch::<i32>(hatch);
+            let (s, mut r) = borrowed_ptr_hatch::<i32>(hatch);
             drop(s);
             // The Receiver doesn't know how lonely they really are.
             assert_eq!(Err(Closed), r.receive().now());
@@ -127,7 +126,7 @@ fn receivenow_empty_dropped() {
         for _ in 0..1_000 {
             let mut hatch = Hatch::default();
             let hatch = NonNull::from(&mut hatch);
-            let (mut s, mut r) = borrowed_ptr_hatch::<i32>(hatch);
+            let (s, mut r) = borrowed_ptr_hatch::<i32>(hatch);
             drop(s);
             assert_eq!(Err(Closed), r.receive().now());
         }
