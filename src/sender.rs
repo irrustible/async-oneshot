@@ -2,6 +2,7 @@ use crate::*;
 #[cfg(feature="async")]
 use core::{future::Future, pin::Pin, task::{Context, Poll}};
 use core::ops::Deref;
+use core::sync::atomic::Ordering::Relaxed;
 
 #[derive(Debug,Eq,PartialEq)]
 /// The reason we couldn't send a message. And our value back.
@@ -76,13 +77,18 @@ impl<'a, T> Sender<'a, T> {
 
     /// Returns a new Receiver after the old one has closed.
     pub fn recover(&mut self) -> Result<receiver::Receiver<'a, T>, RecoverError> {
-        self.hatch.ok_or(RecoverError::Closed).and_then(|_| {
+        self.hatch.ok_or(RecoverError::Closed).and_then(|hatch| {
             if any_flag(self.flags, LONELY) {
                 // We have observed Sender close so we have exclusive access
                 Ok(unsafe { self.recover_unchecked().unwrap() })
             } else {
-                // TODO: attempt with atomic
-                Err(RecoverError::Live)
+                // We don't know so we have to check.
+                let flags = hatch.flags.load(orderings::LOAD);
+                if any_flag(flags, R_CLOSE) {
+                    Ok(unsafe { self.recover_unchecked().unwrap() })
+                } else {
+                    Err(RecoverError::Live)
+                }
             }
         })
     }

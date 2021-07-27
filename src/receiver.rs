@@ -44,13 +44,18 @@ impl<'a, T> Receiver<'a, T> {
 
     /// Returns a new [`Sender`] if the old one has closed and we haven't.
     pub fn recover(&mut self) -> Result<sender::Sender<'a, T>, RecoverError> {
-        self.hatch.ok_or(RecoverError::Closed).and_then(|_| {
+        self.hatch.ok_or(RecoverError::Closed).and_then(|hatch| {
             if any_flag(self.flags, LONELY) {
                 // We have observed Sender close so we have exclusive access
                 Ok(unsafe { self.recover_unchecked().unwrap() })
             } else {
-                // TODO: attempt with atomic
-                Err(RecoverError::Live)
+                // We don't know so we have to check.
+                let flags = hatch.flags.load(orderings::LOAD);
+                if any_flag(flags, S_CLOSE) {
+                    Ok(unsafe { self.recover_unchecked().unwrap() })
+                } else {
+                    Err(RecoverError::Live)
+                }
             }
         })
     }
