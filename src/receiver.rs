@@ -18,11 +18,9 @@ pub struct Receiver<'a, T> {
     flags: Flags,
 }
 
-/// A `Receiver<T>` is Send if T is Send.
+// A `Receiver<T>` is Send+Sync if T is Send
 unsafe impl<'a, T: Send> Send for Receiver<'a, T> {}
-
-/// A Receiver is always Sync because it requires a mut ref for mutation.
-unsafe impl<'a, T> Sync for Receiver<'a, T> {}
+unsafe impl<'a, T: Send> Sync for Receiver<'a, T> {}
 
 impl<'a, T> Receiver<'a, T> {
     /// Creates a new Receiver.

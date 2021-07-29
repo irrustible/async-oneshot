@@ -48,6 +48,10 @@ pub struct Sender<'a, T> {
     flags: Flags,
 }
 
+// A `Sender<T>` is Send+Sync if T is Send
+unsafe impl<'a, T: Send> Send for Sender<'a, T> {}
+unsafe impl<'a, T: Send> Sync for Sender<'a, T> {}
+
 impl<'a, T> Sender<'a, T> {
     /// Creates a new Sender.
     ///
@@ -68,14 +72,14 @@ impl<'a, T> Sender<'a, T> {
     }
 
     #[cfg(feature="async")]
-    #[must_use = "Wait does nothing unless you oll it as a Future."]
-    /// Creates a 
+    // #[must_use = "Wait does nothing unless you poll it as a Future."]
+    /// Creates a disposable object that can wait for the [`Receiver`] to be listening.
     pub fn wait<'b>(&'b mut self) -> Wait<'a, 'b, T> {
         let flags = self.flags;
         Wait { sender: Some(self), flags }
     }
 
-    /// Returns a new Receiver after the old one has closed.
+    /// Returns a new [`Receiver`] after the old one has closed.
     pub fn recover(&mut self) -> Result<receiver::Receiver<'a, T>, RecoverError> {
         self.hatch.ok_or(RecoverError::Closed).and_then(|hatch| {
             if any_flag(self.flags, LONELY) {
@@ -93,7 +97,7 @@ impl<'a, T> Sender<'a, T> {
         })
     }
 
-    /// Returns a new [`Sender`] without checking the old one has closed.
+    /// Returns a new [`Receiver`] without checking the old one has closed.
     ///
     /// ## Safety
     ///
