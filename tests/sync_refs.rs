@@ -1,7 +1,21 @@
-#![cfg(not(feature="async"))]
+#![cfg(all(not(loom),not(feature="async")))]
 use async_hatch::*;
+use core::cell::Cell;
 use core::mem::drop;
 use futures_micro::prelude::*;
+
+fn needs_send_and_sync<T: Send + Sync>(t: &T) {}
+
+#[test]
+fn send_and_sync_for_send_types() {
+    let hatch = Hatch::default();
+    needs_send_and_sync(&hatch);
+    pin!(hatch);
+    // Cell is Send but not Sync
+    let (s, r) = ref_hatch::<Cell<i32>>(hatch.as_mut());
+    needs_send_and_sync(&s);
+    needs_send_and_sync(&r);
+}
 
 #[test]
 fn sendnow_full() {

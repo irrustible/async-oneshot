@@ -4,7 +4,7 @@
 [![Package](https://img.shields.io/crates/v/async-hatch.svg)](https://crates.io/crates/async-hatch)
 [![Documentation](https://docs.rs/async-hatch/badge.svg)](https://docs.rs/async-hatch)
 
-Single message (at a time) async spsc channel. Easy to use, very fast and flexible. Formerly async-oneshot.
+Fast, easy-to-use, async-aware single-producer/single-consumer (SPSC) single message (at a time) channel. Formerly async-oneshot.
 
 ## Status: beta
 
@@ -78,23 +78,23 @@ It's also a cheap way of signalling exit: just drop!
 
 ### Crate features
 
-Default features: `alloc`, `async`, `spin_loop_hint`
+Default features: `alloc`, `async`
 
 `alloc`: enables boxes via the global allocator.
 `async`: enables async features.
-`spin_loop_hint`: enables calling `core::hint::spin_loop` in spin loops.
+`disable_spin_loop_hint`: disables calling `core::hint::spin_loop` in spin loops.
 
 You probably want to leave these as they are. However...
 
 * Disabling `alloc` will let you compile without a global allocator at the cost of convenience.
 * Disabling `async` makes closing slightly cheaper at the cost of all async functionality.
-* Disabling `spin_loop_hint` will probably increase your power consumption and is only advised for
-  unusual circumstances. As a general rule, contention on two-party channels is already low, so we
-  expect spinning to be minimal.
+* Enabling `disable_spin_loop_hint` will probably increase your power
+  consumption and hit your hyperthreading performance. It is only
+  potentially useful in unusual circumstances, such as [running on a
+  SkylakeX](https://community.intel.com/t5/Intel-ISA-Extensions/Pause-instruction-cost-and-proper-use-in-spin-loops/m-p/1137387). As
+  a general rule, contention on two-party channels is already low, so
+  we expect spinning to be minimal anyway.
   
-If you are disabling `alloc` or `async` with `no-default-features`, you should take care to reenable
-the `spin_loop_hint` feature unless you're one of the quite rare users who needs it.
-
 ### Managing memory yourself
 
 

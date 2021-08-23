@@ -1,4 +1,4 @@
-#![cfg(feature="async")]
+#![cfg(all(feature="async", not(loom)))]
 use async_hatch::*;
 use futures_micro::prelude::*;
 use core::mem::drop;

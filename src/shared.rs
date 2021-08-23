@@ -1,6 +1,7 @@
 use core::cell::UnsafeCell;
 use core::ops::Deref;
 use core::ptr::NonNull;
+
 use core::sync::atomic::AtomicUsize;
 
 #[cfg(feature="alloc")]
@@ -9,9 +10,9 @@ use alloc::boxed::Box;
 #[cfg(feature="async")]
 use core::task::Waker;
 
-#[cfg(feature="spin_loop_hint")]
+#[cfg(not(feature="disable_spin_loop_hint"))]
 use core::hint::spin_loop;
-#[cfg(not(feature="spin_loop_hint"))]
+#[cfg(feature="disable_spin_loop_hint")]
 #[inline(always)] fn spin_loop() {}
 
 #[derive(Debug,Eq,PartialEq)]
@@ -105,7 +106,6 @@ impl<'a, T> Holder<'a, Hatch<T>> {
         #[cfg(feature="alloc")]
         if let Self::SharedBoxPtr(p) = self {
             // For a box, we just recreate it and drop it.
-            // panic!("closed");
             Box::from_raw(p.as_ptr());
             return;
         }
@@ -210,13 +210,10 @@ pub const MARK_ON_DROP: Flags = 1 << 4;
 /// (Sender) Whether a message can be overwritten
 pub const OVERWRITE: Flags = 1 << 5;
 
-/// When set, we know the other side is closed and we have exclusive access.
-pub const LONELY:  Flags = 1 << 6;
-
 /// When set, we know we have set a waker. It doesn't mean it's definitely still there,
 /// but it *might* be and thus we have some interest in cleaning it up.
 #[cfg(feature="async")]
-pub const WAITING: Flags = 1 << 7;
+pub const WAITING: Flags = 1 << 6;
 
 /// By default, we don't set any options
 pub const DEFAULT: Flags = 0;

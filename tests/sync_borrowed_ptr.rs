@@ -1,4 +1,4 @@
-#![cfg(not(feature="async"))]
+#![cfg(all(not(loom),not(feature="async")))]
 use async_hatch::*;
 use core::mem::drop;
 use core::ptr::NonNull;

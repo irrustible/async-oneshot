@@ -1,4 +1,4 @@
-#![cfg(all(feature="alloc", not(feature="async")))]
+#![cfg(all(feature="alloc", not(feature="async"), not(loom)))]
 use async_hatch::*;
 use core::mem::drop;
 

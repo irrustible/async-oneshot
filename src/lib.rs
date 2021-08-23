@@ -37,9 +37,9 @@ pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
 /// Creates a new hatch backed by a ref to an existing Hatch. Unlike
 /// [`hatch`], this is not allocated on the stack and is bound by the
 /// lifetime of the passed mut ref.
-pub fn ref_hatch<'a, T>(
-    hatch: Pin<&'a mut Hatch<T>>
-) -> (sender::Sender<'a, T>, receiver::Receiver<'a, T>) {
+pub fn ref_hatch<T>(
+    hatch: Pin<&mut Hatch<T>>
+) -> (sender::Sender<T>, receiver::Receiver<T>) {
     // Safe because we aren't going to move out of it
     let hatch = unsafe { Pin::into_inner_unchecked(hatch) };
     let holder = Holder::Ref(hatch);
@@ -52,9 +52,9 @@ pub fn ref_hatch<'a, T>(
 /// ## Safety
 ///
 /// You must not permit multiple live senders or receivers to exist.
-pub unsafe fn ref_hatch_unchecked<'a, T>(
-    hatch: &'a Hatch<T>
-) -> (sender::Sender<'a, T>, receiver::Receiver<'a, T>) {
+pub unsafe fn ref_hatch_unchecked<T>(
+    hatch: &Hatch<T>
+) -> (sender::Sender<T>, receiver::Receiver<T>) {
     let holder = Holder::Ref(hatch);
     (sender::Sender::new(holder), receiver::Receiver::new(holder))
 }

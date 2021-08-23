@@ -1,7 +1,4 @@
 use criterion::*;
-// use futures_micro::or;
-// use futures_lite::future::{block_on, FutureExt};
-// use core::task::{Poll, Context};
 use async_hatch::*;
 use wookie::*;
 
@@ -326,7 +323,7 @@ pub fn wait(c: &mut Criterion) {
         "dropped",
         |b| b.iter_batched_ref(
             || hatch::<usize>().0,
-            |mut send| {
+            |send| {
                 woke!(f: send.wait());
                 unsafe { f.poll() }
             },

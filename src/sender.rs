@@ -2,7 +2,6 @@ use crate::*;
 #[cfg(feature="async")]
 use core::{future::Future, pin::Pin, task::{Context, Poll}};
 use core::ops::Deref;
-use core::sync::atomic::Ordering::Relaxed;
 
 #[derive(Debug,Eq,PartialEq)]
 /// The reason we couldn't send a message. And our value back.
@@ -44,7 +43,7 @@ impl<T> Deref for SendError<T> {
 /// [`Sending`] object, in which case they only apply to that operation.
 #[derive(Debug)]
 pub struct Sender<'a, T> {
-    hatch: Option<Holder<'a, Hatch<T>>>,
+    hatch: Holder<'a, Hatch<T>>,
     flags: Flags,
 }
 
@@ -60,7 +59,7 @@ impl<'a, T> Sender<'a, T> {
     /// You must not permit multiple live senders to exist.
     #[inline(always)]
     pub(crate) unsafe fn new(hatch: Holder<'a, Hatch<T>>) -> Self {
-        Sender { hatch: Some(hatch), flags: DEFAULT }
+        Sender { hatch, flags: DEFAULT }
     }
 
     /// Returns a disposable object for a single send operation.
@@ -68,7 +67,7 @@ impl<'a, T> Sender<'a, T> {
     #[must_use = "Sending does nothing unless you call `.now` or poll it as a Future."]
     pub fn send<'b>(&'b mut self, value: T) -> Sending<'a, 'b, T> {
         let flags = self.flags;
-        Sending { sender: Some(self), value: Some(value), flags }
+        Sending { sender: self, value: Some(value), flags }
     }
 
     #[cfg(feature="async")]
@@ -76,25 +75,23 @@ impl<'a, T> Sender<'a, T> {
     /// Creates a disposable object that can wait for the [`Receiver`] to be listening.
     pub fn wait<'b>(&'b mut self) -> Wait<'a, 'b, T> {
         let flags = self.flags;
-        Wait { sender: Some(self), flags }
+        Wait { sender: self, flags }
     }
 
     /// Returns a new [`Receiver`] after the old one has closed.
     pub fn recover(&mut self) -> Result<receiver::Receiver<'a, T>, RecoverError> {
-        self.hatch.ok_or(RecoverError::Closed).and_then(|hatch| {
-            if any_flag(self.flags, LONELY) {
-                // We have observed Sender close so we have exclusive access
-                Ok(unsafe { self.recover_unchecked().unwrap() })
+        if any_flag(self.flags, S_CLOSE) { return Err(RecoverError::Closed); }
+        if any_flag(self.flags, R_CLOSE) { // safe because they closed
+            Ok(unsafe { self.recover_unchecked() })
+        } else {
+            // We don't know so we have to check.
+            let flags = self.hatch.flags.load(orderings::LOAD);
+            if any_flag(flags, R_CLOSE) {
+                Ok(unsafe { self.recover_unchecked() })
             } else {
-                // We don't know so we have to check.
-                let flags = hatch.flags.load(orderings::LOAD);
-                if any_flag(flags, R_CLOSE) {
-                    Ok(unsafe { self.recover_unchecked().unwrap() })
-                } else {
-                    Err(RecoverError::Live)
-                }
+                Err(RecoverError::Live)
             }
-        })
+        }
     }
 
     /// Returns a new [`Receiver`] without checking the old one has closed.
@@ -102,12 +99,10 @@ impl<'a, T> Sender<'a, T> {
     /// ## Safety
     ///
     /// You must not permit multiple live Receivers to exist.
-    pub unsafe fn recover_unchecked(&mut self) -> Result<receiver::Receiver<'a, T>, Closed> {
-        self.hatch.map(|h| {
-            h.recycle(); // A release store
-            self.flags &= !LONELY; // reset flag
-            receiver::Receiver::new(h)
-        }).ok_or(Closed)
+    pub unsafe fn recover_unchecked(&mut self) -> receiver::Receiver<'a, T> {
+        self.hatch.recycle(); // A release store
+        self.flags &= !R_CLOSE; // reset flag
+        receiver::Receiver::new(self.hatch)
     }
 
     /// Gets the value of the `overwrite` option. See the [`Sender`] docs for an explanation.
@@ -152,39 +147,36 @@ impl<'a, T> Sender<'a, T> {
     /// # Safety
     ///
     /// You must not permit multiple live senders to exist.
-    pub unsafe fn leak(mut sender: Sender<T>) { sender.hatch.take(); }
+    pub unsafe fn leak(mut sender: Sender<T>) { sender.flags |= S_CLOSE; }
 }
 
 impl<'a, T> Drop for Sender<'a, T> {
     fn drop(&mut self) {
-        if let Some(hatch) = self.hatch.take() {
-            if any_flag(self.flags, LONELY) {
-                // If we are LONELY, we have exclusive access
-                return unsafe { hatch.cleanup(any_flag(self.flags, MARK_ON_DROP)); }
-            }
-            #[cfg(not(feature="async"))] {
-                // Without async, we just set the flag and check we won.
-                let flags = hatch.flags.fetch_or(S_CLOSE, orderings::MODIFY);
-                if any_flag(flags, R_CLOSE) {
-                    // Safe because we have seen the receiver closed
-                    unsafe { hatch.cleanup(any_flag(self.flags, MARK_ON_DROP)); }
-                } 
-            }
-            #[cfg(feature="async")] {
-                // For async, we have to lock and maybe wake the receiver
-                let flags = hatch.lock();
-                if any_flag(flags, R_CLOSE) {
-                    // Safe because we have seen the receiver closed
-                    unsafe { hatch.cleanup(any_flag(self.flags, MARK_ON_DROP)) };
-                } else {
-                    let shared = unsafe { &mut *hatch.inner.get() };
-                    let _send = shared.sender.take();  // we won't be waiting any more
-                    let recv = shared.receiver.take(); // we might need to wake them
-                    // simultaneously mark us closed and release the lock.
-                    hatch.flags.store(flags | S_CLOSE, orderings::STORE);
-                    // Finally, wake the receiver if they are waiting.
-                    if let Some(waker) = recv { waker.wake(); }
-                }
+        if any_flag(self.flags, S_CLOSE) { return; }
+        if any_flag(self.flags, R_CLOSE) { // safe because they closed
+            return unsafe { self.hatch.cleanup(any_flag(self.flags, MARK_ON_DROP)); }
+        }
+        #[cfg(not(feature="async"))] {
+            // Without async, we just set the flag and check we won.
+            let flags = self.hatch.flags.fetch_or(S_CLOSE, orderings::MODIFY);
+            if any_flag(flags, R_CLOSE) {
+                // Safe because we have seen the receiver closed
+                unsafe { self.hatch.cleanup(any_flag(self.flags, MARK_ON_DROP)); }
+            } 
+        }
+        #[cfg(feature="async")] {
+            // For async, we have to lock and maybe wake the receiver
+            let flags = self.hatch.lock();
+            if any_flag(flags, R_CLOSE) { // safe because they closed
+                unsafe { self.hatch.cleanup(any_flag(self.flags, MARK_ON_DROP)) };
+            } else {
+                let shared = unsafe { &mut *self.hatch.inner.get() };
+                let _send = shared.sender.take();  // we won't be waiting any more
+                let recv = shared.receiver.take(); // we might need to wake them
+                // simultaneously mark us closed and release the lock.
+                self.hatch.flags.store(flags | S_CLOSE, orderings::STORE);
+                // Finally, wake the receiver if they are waiting.
+                if let Some(waker) = recv { waker.wake(); }
             }
         }
     }
@@ -214,10 +206,13 @@ impl<'a, T> Drop for Sender<'a, T> {
 /// `Future` impl ignores the `overwrite` option (`now` does not).
 #[derive(Debug)]
 pub struct Sending<'a, 'b, T> {
-    sender: Option<&'b mut Sender<'a, T>>,
+    sender: &'b mut Sender<'a, T>,
     value: Option<T>,
     flags: Flags,
 }
+
+unsafe impl<'a, 'b, T: Send> Send for Sending<'a, 'b, T> {}
+unsafe impl<'a, 'b, T: Send> Sync for Sending<'a, 'b, T> {}
 
 impl<'a, 'b, T> Sending<'a, 'b, T> {
     /// Gets the value of the `overwrite` option. See the [`Sending`] docs for an explanation.
@@ -252,44 +247,34 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
     /// Fails if the Receiver has closed or there was an exiisting
     /// message and overwrite is not enabled.
     pub fn now(mut self) -> Result<Option<T>, SendError<T>> {
-        // We need this either way
-        let value = self.value.take().unwrap();
         // Check for life
-        if no_flag(self.flags, LONELY) {
-            let sender = self.sender.take().unwrap();
-            if let Some(hatch) = sender.hatch.as_ref() {
-                // Take a lock so we can store a value.
-                let flags = hatch.lock();
-                if any_flag(flags, R_CLOSE) {
-                    // No need to release the lock, just set us lonely.
-                    sender.flags |= LONELY;
-                    return Err(SendError::Closed(value));
-                } else {
-                    let shared = unsafe { &mut *hatch.inner.get() };
-                    if any_flag(self.flags, OVERWRITE) || shared.value.is_none() {
-                        let value = shared.value.replace(value);
-                        // Dropping does not require taking a lock, so we can't just do a `store` as in
-                        // the async case. We compose a mask to xor with it that unlocks and may also
-                        // close.
-                        let mask = LOCK | s_closes(self.flags);
-                        let flags = hatch.flags.fetch_xor(mask, orderings::MODIFY);
-                        // All that was because they might close on us.
-                        if any_flag(flags, R_CLOSE) {
-                            sender.flags |= LONELY;
-                            let value = shared.value.take().unwrap();
-                            return Err(SendError::Closed(value));
-                        } else {
-                            if any_flag(self.flags, CLOSE_ON_SUCCESS) { sender.hatch.take(); }
-                            return Ok(value)
-                        }
-                    } else {
-                        hatch.flags.store(flags, orderings::STORE);
-                        return Err(SendError::Existing(value))
-                    }
-                }
+        if any_flag(self.sender.flags, S_CLOSE) { return Err(SendError::Closed(value)); }
+        let value = self.value.take().unwrap();
+        // Take a lock so we can store a value.
+        let flags = self.sender.hatch.lock();
+        self.sender.flags |= flags & R_CLOSE;
+        if any_flag(flags, R_CLOSE) { return Err(SendError::Closed(value)); }
+        // Still here? Let's go.
+        let shared = unsafe { &mut *hatch.inner.get() };
+        if shared.value.is_none() || any_flag(self.flags, OVERWRITE) {
+            let value = shared.value.replace(value);
+            // Dropping does not require taking a lock, so we can't just do a `store` as in
+            // the async case. We compose a mask to xor with it that unlocks and may also
+            // close.
+            let closes = s_closes(self.flags);
+            let flags = hatch.flags.fetch_xor(LOCK | closes, orderings::MODIFY);
+            self.sender.flags |= flags & R_CLOSE;
+            // All that was because they might close on us.
+            if any_flag(flags, R_CLOSE) {
+                Err(SendError::Closed(shared.value.take().unwrap()));
+            } else {
+                self.sender.flags |= closes;
+                return Ok(value)
             }
+        } else {
+            hatch.flags.store(flags, orderings::STORE);
+            return Err(SendError::Existing(value))
         }
-        Err(SendError::Closed(value))
     }
 }
 
@@ -303,39 +288,33 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
     /// Fails if the Receiver has closed or there was an existing
     /// message and overwrite is not enabled.
     pub fn now(mut self) -> Result<Option<T>, SendError<T>> {
-        // We need these either way
         let value = self.value.take().unwrap();
-        let sender = self.sender.take().unwrap();
         // Check for life
-        if no_flag(sender.flags, LONELY) {
-            if let Some(hatch) = sender.hatch.as_ref() {
-                // Now we must take a lock to access the value
-                let flags = hatch.lock();
-                if any_flag(flags, R_CLOSE) {
-                    // No need to unlock, we can just mark the Receiver as lonely.
-                    sender.flags |= LONELY;
-                    return Err(SendError::Closed(value))
-                }
-                let shared = unsafe { &mut *hatch.inner.get() };
-                if any_flag(self.flags, OVERWRITE) || shared.value.is_none() {
-                    // We are going to succeed!
-                    let value = shared.value.replace(value);
-                    let receiver = shared.receiver.take();
-                    // Release the lock, setting the close flag if we close on success
-                    let flags = flags | s_closes(self.flags);
-                    hatch.flags.store(flags, orderings::STORE);
-                    // If we just closed, we need to clean up
-                    if any_flag(self.flags, CLOSE_ON_SUCCESS) { sender.hatch.take(); }
-                    // If the receiver is waiting, wake them.
-                    if let Some(waker) = receiver { waker.wake(); }
-                    return Ok(value)
-                }
-                // We found a value and we do not overwrite. Unlock.
-                hatch.flags.store(flags, orderings::STORE);
-                return Err(SendError::Existing(value))
-            }
+        if any_flag(self.sender.flags, S_CLOSE | R_CLOSE) {
+            return Err(SendError::Closed(value));
         }
-        Err(SendError::Closed(value))
+        // Now we must take a lock to access the value
+        let flags = self.sender.hatch.lock();
+        self.sender.flags |= flags & R_CLOSE;
+        if any_flag(flags, R_CLOSE) { return Err(SendError::Closed(value)); }
+        let shared = unsafe { &mut *self.sender.hatch.inner.get() };
+        if shared.value.is_none() || any_flag(self.flags, OVERWRITE) {
+            // We are going to succeed!
+            let value = shared.value.replace(value);
+            let receiver = shared.receiver.take();
+            // Release the lock, setting the close flag if we close on success
+            let closes = s_closes(self.flags);
+            let flags = flags | closes;
+            self.sender.hatch.flags.store(flags, orderings::STORE);
+            self.sender.flags |= closes;
+            // If the receiver is waiting, wake them.
+            if let Some(waker) = receiver { waker.wake(); }
+            Ok(value)
+        } else {
+            // We found a value and we do not overwrite. Unlock.
+            self.sender.hatch.flags.store(flags, orderings::STORE);
+            Err(SendError::Existing(value))
+        }
     }
 
     // pin-project-lite does not let us define a Drop impl
@@ -345,29 +324,20 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
     }
 }
 
+#[cfg(feature="async")]
 impl<'a, 'b, T> Drop for Sending<'a, 'b, T> {
     // Clean out the waker. This is a calculated bet that this drop is faster than your async
     // executor (probably true in prod, sadly not in our benchmarks).
     fn drop(&mut self) {
-        // we only need a Drop impl on async, but we want to keep it the same across the two
-        #[cfg(feature="async")]
-        if let Some(sender) = self.sender.take() {
-            // If we are lonely or not waiting, we don't have to clean up
-            if WAITING == (self.flags | sender.flags) & (LONELY | WAITING) {
-                if let Some(hatch) = sender.hatch {
-                    // We'll need a lock as usual
-                    let flags = hatch.lock();
-                    if any_flag(flags, R_CLOSE) {
-                        // No need to release the lock
-                        sender.flags |= LONELY;
-                    } else {
-                        // Our cleanup is to remove the waker. Also release the lock.
-                        let shared = unsafe { &mut *hatch.inner.get() };
-                        let _delay_drop = shared.sender.take();
-                        hatch.flags.store(flags, orderings::STORE);
-                    }
-                }
-            }
+        // If we are lonely or not waiting, we don't have to clean up
+        if WAITING != (self.flags | self.sender.flags) & (S_CLOSE | WAITING) { return; }
+        let flags = self.sender.hatch.lock();
+        self.sender.flags |= flags & R_CLOSE;
+        if no_flag(flags, R_CLOSE) {
+            // Our cleanup is to remove the waker. Also release the lock.
+            let shared = unsafe { &mut *self.sender.hatch.inner.get() };
+            let _delay_drop = shared.sender.take();
+            self.sender.hatch.flags.store(flags, orderings::STORE);
         }
     }
 }
@@ -378,40 +348,32 @@ impl<'a, 'b, T> Future for Sending<'a, 'b, T> {
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         let this = self.project();
         let value = this.value.take().unwrap();
-        if let Some(sender) = this.sender.as_mut() {
-            if no_flag(this.flags, LONELY) {
-                if let Some(hatch) = sender.hatch.as_ref() {
-                    // Take a lock so we can store a value.
-                    let flags = hatch.lock();
-                    if any_flag(flags, R_CLOSE) {
-                        // No need to release the lock, just set us lonely.
-                        sender.flags |= LONELY;
-                        return Poll::Ready(Err(SendError::Closed(value)));
-                    }
-                    let shared = unsafe { &mut *hatch.inner.get() };
-                    if shared.value.is_none() {
-                        shared.value = Some(value);
-                        let receiver = shared.receiver.take();
-                        // release the lock and maybe close
-                        let flags = flags | s_closes(this.flags);
-                        hatch.flags.store(flags, orderings::STORE);
-                        // If we just closed, we'd better clean up
-                        if any_flag(this.flags, CLOSE_ON_SUCCESS) { sender.hatch.take(); }
-                        // And since we delivered, we should wake the receiver.
-                        if let Some(waker) = receiver { waker.wake(); }
-                        return Poll::Ready(Ok(()))
-                    } else {
-                        // set a waker and release the lock
-                        let _waker = shared.sender.replace(ctx.waker().clone());
-                        hatch.flags.store(flags, orderings::STORE);
-                        // put the value back for the next poll
-                        this.value.replace(value);
-                        return Poll::Pending
-                    }
-                }
-            }
+        // Check for life.
+        if any_flag(this.sender.flags, S_CLOSE) { return Poll::Ready(Err(SendError::Closed(value))); }
+        // Take a lock so we can store a value.
+        let flags = this.sender.hatch.lock();
+        this.sender.flags |= R_CLOSE;
+        if any_flag(flags, R_CLOSE) { return Poll::Ready(Err(SendError::Closed(value))); }
+        let shared = unsafe { &mut *this.sender.hatch.inner.get() };
+        if shared.value.is_none() {
+            shared.value = Some(value);
+            let receiver = shared.receiver.take();
+            // release the lock and maybe close
+            let closes = s_closes(this.flags);
+            let flags = flags | closes;
+            this.sender.hatch.flags.store(flags, orderings::STORE);
+            this.sender.flags |= closes;
+            // And since we delivered, we should wake the receiver.
+            if let Some(waker) = receiver { waker.wake(); }
+            Poll::Ready(Ok(()))
+        } else {
+            // set a waker and release the lock
+            let _waker = shared.sender.replace(ctx.waker().clone());
+            this.sender.hatch.flags.store(flags, orderings::STORE);
+            // put the value back for the next poll
+            this.value.replace(value);
+            Poll::Pending
         }
-        Poll::Ready(Err(SendError::Closed(value)))
     }
 }
 
@@ -420,7 +382,7 @@ impl<'a, 'b, T> Future for Sending<'a, 'b, T> {
 /// demand (lazy send).
 #[cfg(feature="async")]
 pub struct Wait<'a, 'b, T> {
-    sender: Option<&'b mut Sender<'a, T>>,
+    sender: &'b mut Sender<'a, T>,
     flags:  Flags,
 }
 
@@ -438,26 +400,14 @@ impl<'a, 'b, T> Drop for Wait<'a, 'b, T> {
     // clean out the waker. essentially this makes our benchmarks worse but should improve real
     // world performance, since we assume that an async executor can't match our performance.
     fn drop(&mut self) {
-        // we only need a Drop impl on async, but we want to keep it the same across the two
-        #[cfg(feature="async")]
-        if let Some(sender) = self.sender.take() {
-            // If we are not waiting, we don't need to do anythning.
-            if any_flag(self.flags, WAITING) {
-                if let Some(hatch) = sender.hatch {
-                    // We'll need a lock as usual
-                    let flags = hatch.lock();
-                    if any_flag(flags, R_CLOSE) {
-                        // No need to release the lock
-                        sender.flags |= LONELY;
-                    } else {
-                        // Our cleanup is to remove the waker. Also release the lock.
-                        let shared = unsafe { &mut *hatch.inner.get() };
-                        let _delay_drop = shared.sender.take();
-                        hatch.flags.store(flags, orderings::STORE);
-                    }
-                }
-            }
-        }
+        if WAITING != (self.flags | self.sender.flags) & (S_CLOSE | WAITING) { return; }
+        // We'll need a lock as usual
+        let flags = self.sender.hatch.lock();
+        self.sender.flags |= flags & R_CLOSE; // propagate any close.
+        // Our cleanup is to remove the waker. Also release the lock.
+        let shared = unsafe { &mut *self.sender.hatch.inner.get() };
+        let _delay_drop = shared.sender.take();
+        self.sender.hatch.flags.store(flags, orderings::STORE);
     }
 }
 
@@ -468,36 +418,25 @@ impl<'a, 'b, T> Future for Wait<'a, 'b, T> {
         // Safe because we won't move out of self.
         let this = unsafe { self.project() };
         // Check for life
-        if no_flag(this.flags, LONELY) {
-            if let Some(sender) = this.sender.as_mut() {
-                if let Some(hatch) = sender.hatch {
-                    // We'll need a lock as usual
-                    let flags = hatch.lock();
-                    if any_flag(flags, R_CLOSE) {
-                        // No need to release the lock or wake.
-                        sender.flags |= LONELY; // Stop trying to do things
-                        this.sender.take();     // Disable the destructor.
-                        return Poll::Ready(Err(Closed));
-                    }
-                    // Okay, we're good.
-                    let shared = unsafe { &mut *hatch.inner.get() };
-                    if shared.receiver.is_some() && shared.value.is_none() {
-                        // Woohoo!
-                        let _delay_drop = shared.sender.take(); // No need to wait.
-                        // Release the lock. We do not ever close just on a wait.
-                        hatch.flags.store(flags, orderings::STORE);
-                        this.flags &= !WAITING; // Unset the flag
-                        this.sender.take(); // Disable the destructor.
-                        return Poll::Ready(Ok(()));
-                    }
-                    // We have to wait and unlock.
-                    let _delay_drop = shared.sender.replace(ctx.waker().clone());
-                    hatch.flags.store(flags, orderings::STORE);
-                    this.flags |= WAITING;
-                    return Poll::Pending
-                }
-            }
+        if any_flag(this.sender.flags | this.flags, S_CLOSE | R_CLOSE) { return Poll::Ready(Err(Closed)); }
+        // We'll need a lock as usual
+        let flags = this.sender.hatch.lock();
+        this.sender.flags |= flags & R_CLOSE;
+        if any_flag(flags, R_CLOSE) { return Poll::Ready(Err(Closed)); }
+        // Okay, we're good.
+        let shared = unsafe { &mut *this.sender.hatch.inner.get() };
+        if shared.receiver.is_some() && shared.value.is_none() {
+            // Woohoo! Take the sender and release the lock.
+            let _delay_drop = shared.sender.take(); // No need to wait.
+            this.sender.hatch.flags.store(flags, orderings::STORE);
+            this.flags &= !WAITING; // Unset the flag
+            Poll::Ready(Ok(()))
+        } else {
+            // Set a waker and unlock.
+            let _delay_drop = shared.sender.replace(ctx.waker().clone());
+            this.sender.hatch.flags.store(flags, orderings::STORE);
+            this.flags |= WAITING;
+            Poll::Pending
         }
-        Poll::Ready(Err(Closed))
     }
 }
