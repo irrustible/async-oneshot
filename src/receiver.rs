@@ -191,18 +191,18 @@ impl<'a, 'b, T> Receiving<'a, 'b, T> {
             // `store` as in the async case. We compose a mask to xor with it that
             // unlocks and may also close.
             let closes = r_closes(self.flags);
-            let flags = hatch.flags.fetch_xor(LOCK | closes, orderings::MODIFY);
+            let flags = self.receiver.hatch.flags.fetch_xor(LOCK | closes, orderings::MODIFY);
             self.receiver.flags |= closes | (flags & S_CLOSE);
         } else {
             // Similar to before, but simpler as we don't close
-            let flags = hatch.flags.fetch_and(!LOCK, orderings::MODIFY);
+            let flags = self.receiver.hatch.flags.fetch_and(!LOCK, orderings::MODIFY);
             self.receiver.flags |= S_CLOSE;
             // And check the sender didn't close again.
             if any_flag(flags, S_CLOSE) {
                 return value.map(Some).ok_or(Closed);
             }
         }
-        Ok(value);
+        Ok(value)
     }
 }
 

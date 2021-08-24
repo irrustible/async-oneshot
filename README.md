@@ -4,7 +4,8 @@
 [![Package](https://img.shields.io/crates/v/async-hatch.svg)](https://crates.io/crates/async-hatch)
 [![Documentation](https://docs.rs/async-hatch/badge.svg)](https://docs.rs/async-hatch)
 
-Fast, easy-to-use, async-aware single-producer/single-consumer (SPSC) single message (at a time) channel. Formerly async-oneshot.
+Fast, easy-to-use, async-aware single-producer/single-consumer (SPSC)
+channel for a message at a time. FKA async-oneshot.
 
 ## Status: beta
 
@@ -13,8 +14,14 @@ correctness of. We expect to do a 1.0 release soon.
 
 ## Introduction
 
-`channels` are a popular way of passing messages between async tasks. Each channel has a `Sender`
-for sending messages and a `Receiver` for receiving them.
+`channels` are a popular way of passing messages between async
+tasks. Each async channel is split into two halves:
+
+* A `Sender` for sending messages.
+* A `Receiver` for receiving messages.
+
+The two halves are typically owned by different async tasks, thus they
+are a simple way for two tasks to communicate.
 
 `async-hatch` is a channel that can hold one message at a time. It is
 small, easy to use, feature rich and *very* fast.
@@ -22,12 +29,12 @@ small, easy to use, feature rich and *very* fast.
 Features:
 
 * Send messages between two async tasks, two threads or an async task and a thread.
-* Sender may wait for Receiver to listen (lazy send).
-* Sender may overwrite an existing message.
+* `Sender` may optionally wait for `Receiver` to be listening (lazy send).
+* `Sender` may optionally overwrite an existing message.
 * Blazing fast! See `Performance` section below for some indication.
 * Small, zero-dependency, readable code.
 * Uses no unstable features.
-* Full no-std support (with or without an allocator!).
+* Full no-std support (`alloc` recommended but optional).
 * Full manual memory management support.
 
 ## Usage
@@ -44,8 +51,9 @@ async fn simple() {
 }
 ```
 
-While the defaults will suit most people, there are many ways to use `async-hatch` - it's a great
-building block for *lots* of async patterns!
+While the defaults will suit most people, there are many ways to use
+`async-hatch` - it's a great building block for *lots* of async
+patterns!
 
 Hatches come with recovery support. When one side closes, the other
 side may replace them:
@@ -80,14 +88,17 @@ It's also a cheap way of signalling exit: just drop!
 
 Default features: `alloc`, `async`
 
-`alloc`: enables boxes via the global allocator.
-`async`: enables async features.
-`disable_spin_loop_hint`: disables calling `core::hint::spin_loop` in spin loops.
+* `alloc`: enables boxes via the global allocator.
+* `async`: enables async features.
+* `messy`: disables cleaning up wakers when an operation object is dropped prematurely
+* `disable_spin_loop_hint`: disables calling `core::hint::spin_loop` in spin loops.
 
 You probably want to leave these as they are. However...
 
 * Disabling `alloc` will let you compile without a global allocator at the cost of convenience.
-* Disabling `async` makes closing slightly cheaper at the cost of all async functionality.
+* Disabling `async` may make some things cheaper at the cost of all async functionality.
+* Enabling `messy` is essentially swearing that your async executor can run faster than we can pull
+  our waker in the operation destructors. That's... not happening on a multicore executor.
 * Enabling `disable_spin_loop_hint` will probably increase your power
   consumption and hit your hyperthreading performance. It is only
   potentially useful in unusual circumstances, such as [running on a
@@ -95,10 +106,6 @@ You probably want to leave these as they are. However...
   a general rule, contention on two-party channels is already low, so
   we expect spinning to be minimal anyway.
   
-### Managing memory yourself
-
-
-
 ## Performance
 
 tl; dr: probably strictly faster than whatever you're using right now.
@@ -108,9 +115,9 @@ that can enable you to squeeze even more performance out of it in some situation
 
 ### Performance Tips
 
-Note: we are very very fast. We are probably not your bottleneck.
+We are very very fast. We are probably not your bottleneck. However...
 
-* Make use of the ability to reuse and recycle - they're cheaper than calling the destructors.
+* Make use of the ability to reuse and recycle - drop is the most expensive operation.
 * Setting `closes(true)` before your last (or only!) operation makes the destructor cheaper.
 * The unsafe API allows you to gain more performance in some situations by reducing
   synchronisation. Much of it is only useful in the presence of external synchronisation or by

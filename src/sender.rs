@@ -283,9 +283,9 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
             let closes = s_closes(self.flags); // branchless close mask
             #[cfg(not(feature="async"))] {
                 // Dropping does not require taking a lock, so they might...
-                let flags = self.sender.xor(LOCK | closes, orderings::MODIFY);
+                let flags = self.sender.xor(LOCK | closes);
                 if any_flag(flags, R_CLOSE) {
-                    Err(SendError::closed(shared.value.take().unwrap()));
+                    Err(SendError::closed(shared.value.take().unwrap()))
                 } else {
                     self.sender.flags |= closes;
                     Ok(value)
@@ -305,11 +305,9 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
             // We found a value and we do not overwrite. Unlock.
             #[cfg(not(feature="async"))] {
                 // Dropping does not require taking a lock, so they might...
-                let flags = self.sender.xor(LOCK, orderings::MODIFY);
+                let flags = self.sender.xor(LOCK);
                 if any_flag(flags, R_CLOSE) {
-                    Err(SendError::closed(shared.value.take().unwrap()));
-                } else {
-                    Ok(value)
+                    return Err(SendError::closed(shared.value.take().unwrap()));
                 }
             }
             #[cfg(feature="async")]

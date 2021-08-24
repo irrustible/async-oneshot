@@ -17,7 +17,8 @@ use shared::*;
 pub mod sender;
 pub mod receiver;
 
-pub use sender::SendError;
+pub use sender::*;
+pub use receiver::*;
 
 /// This is a convenience alias where the lifetime is static.
 pub type Receiver<T> = receiver::Receiver<'static, T>;
@@ -39,7 +40,7 @@ pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
 /// lifetime of the passed mut ref.
 pub fn ref_hatch<T>(
     hatch: Pin<&mut Hatch<T>>
-) -> (sender::Sender<T>, receiver::Receiver<T>) {
+) -> (sender::Sender<'_, T>, receiver::Receiver<'_, T>) {
     // Safe because we aren't going to move out of it
     let hatch = unsafe { Pin::into_inner_unchecked(hatch) };
     let holder = Holder::Ref(hatch);

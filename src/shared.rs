@@ -130,6 +130,7 @@ impl<'a, T> Clone for Holder<'a, T> {
         match self {
             Holder::Ref(r) => Holder::Ref(r),
             Holder::BorrowedPtr(r) => Holder::BorrowedPtr(*r),
+            #[cfg(feature="alloc")]
             Holder::SharedBoxPtr(r) => Holder::SharedBoxPtr(*r),
         }
     }

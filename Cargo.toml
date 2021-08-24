@@ -1,8 +1,8 @@
 [package]
 name = "async-hatch"
 version = "1.0.0-rc.0"
-description = "Single message (at a time) async spsc channel. Easy to use, very fast and flexible. Formerly async-oneshot."
-keywords = ["spsc", "oneshot", "channel", "message", "promise"]
+description = "Fast, easy-to-use, async-aware single-producer/single-consumer (SPSC) channel for a message at a time. FKA async-oneshot."
+keywords = ["spsc", "channel", "message", "promise", "signal"]
 categories = ["asynchronous", "concurrency", "data-structures", "no-std"]
 authors = ["James Laver <james.laver@gmail.com>"]
 homepage = "https://github.com/irrustible/async-hatch"
@@ -13,15 +13,17 @@ edition = "2018"
 readme = "README.md"
 
 [features]
-default = ["alloc", "async", "spin_loop_hint"]
+default = ["alloc", "async"]
 alloc = [] # permit use of an allocator
 async = [] # async support
-spin_loop_hint = [] # use core::hint::spin_loop in wait loops
+messy = [] # assume your async runtime is faster than we can pull a waker
+disable_spin_loop_hint = [] # don't use core::hint::spin_loop in wait loops
 bench = ["criterion"] # because you can't make dev-dependencies optional and it's huge
 
 [dev-dependencies]
 futures-micro = "0.5.0"
-wookie = "0.2.0"
+wookie = "0.3.1"
+# wookie = { path = "../wookie" }
 
 # because you can't make dev-dependencies optional and it's huge
 [dependencies.criterion]
