@@ -1,4 +1,5 @@
 use crate::*;
+use core::mem::forget;
 #[cfg(feature="async")]
 use core::{future::Future, pin::Pin, task::{Context, Poll}};
 
@@ -275,7 +276,10 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
         if any_flag(self.sender.flags, S_CLOSE) { return Err(SendError::closed(value)); }
         // They must be open to proceed.
         let flags = self.sender.lock();
-        if any_flag(flags, R_CLOSE) { return Err(SendError::closed(value)); }
+        if any_flag(flags, R_CLOSE) {
+            forget(self);
+            return Err(SendError::closed(value));
+        }
         // Still here? Let's go.
         let shared = unsafe { &mut *self.sender.hatch.inner.get() };
         if shared.value.is_none() || any_flag(self.flags, OVERWRITE) {
@@ -285,9 +289,11 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
                 // Dropping does not require taking a lock, so they might...
                 let flags = self.sender.xor(LOCK | closes);
                 if any_flag(flags, R_CLOSE) {
+                    forget(self);
                     Err(SendError::closed(shared.value.take().unwrap()))
                 } else {
                     self.sender.flags |= closes;
+                    forget(self);
                     Ok(value)
                 }
             }
@@ -297,6 +303,7 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
                 let flags = flags | closes;
                 self.sender.hatch.flags.store(flags, orderings::STORE);
                 self.sender.flags |= closes;
+                forget(self);
                 // If the receiver is waiting, wake them.
                 if let Some(waker) = receiver { waker.wake(); }
                 Ok(value)
@@ -307,11 +314,14 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
                 // Dropping does not require taking a lock, so they might...
                 let flags = self.sender.xor(LOCK);
                 if any_flag(flags, R_CLOSE) {
+                    forget(self);
                     return Err(SendError::closed(shared.value.take().unwrap()));
                 }
             }
-            #[cfg(feature="async")]
-            self.sender.hatch.flags.store(flags, orderings::STORE);
+            #[cfg(feature="async")] {
+                self.sender.hatch.flags.store(flags, orderings::STORE);
+                forget(self);
+            }
             Err(SendError::full(value))
         }
     }
@@ -353,11 +363,13 @@ impl<'a, 'b, T> Future for Sending<'a, 'b, T> {
 
 #[cfg(all(feature="async", not(feature="messy")))]
 impl<'a, 'b, T> Drop for Sending<'a, 'b, T> {
-    // Clean out the waker. This is a calculated bet that this drop is faster than your async
-    // executor (probably true in prod, sadly not in our benchmarks).
+    // Clean out the waker to avoid a spurious wake. This would not
+    // pose a correctness problem, but we strongly suspect this drop
+    // method is faster than your executor.
     fn drop(&mut self) {
         // If we are closed or not waiting, we don't have to clean up
-        if WAITING != (self.flags | self.sender.flags) & (S_CLOSE | WAITING) { return; }
+        if no_flag(self.flags, WAITING) { return; }
+        if any_flag(self.sender.flags, S_CLOSE) { return; }
         let flags = self.sender.lock();
         if no_flag(flags, R_CLOSE) {
             // Our cleanup is to remove the waker. Also release the lock.
@@ -389,7 +401,9 @@ impl<'a, 'b, T> Wait<'a, 'b, T> {
 #[cfg(all(feature="async", not(feature="messy")))]
 impl<'a, 'b, T> Drop for Wait<'a, 'b, T> {
     fn drop(&mut self) {
-        if WAITING != (self.flags | self.sender.flags) & (S_CLOSE | WAITING) { return; } // Nothing to do.
+        // If we are closed or not waiting, we don't have to clean up
+        if no_flag(self.flags, WAITING) { return; }
+        if any_flag(self.sender.flags, S_CLOSE) { return; }
         let flags = self.sender.lock();
         let shared = unsafe { &mut *self.sender.hatch.inner.get() };
         let _delay_drop = shared.sender.take();  // Unwait.

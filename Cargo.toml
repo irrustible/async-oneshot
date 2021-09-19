@@ -1,7 +1,7 @@
 [package]
 name = "async-hatch"
 version = "1.0.0-rc.0"
-description = "Fast, easy-to-use, async-aware single-producer/single-consumer (SPSC) channel for a message at a time. FKA async-oneshot."
+description = "Fast, easy-to-use, async-aware single-producer/single-consumer (SPSC) channel for a message at a time. Formerly async-oneshot."
 keywords = ["spsc", "channel", "message", "promise", "signal"]
 categories = ["asynchronous", "concurrency", "data-structures", "no-std"]
 authors = ["James Laver <james.laver@gmail.com>"]
@@ -22,13 +22,17 @@ bench = ["criterion"] # because you can't make dev-dependencies optional and it'
 
 [dev-dependencies]
 futures-micro = "0.5.0"
-wookie = "0.3.1"
+wookie = "0.3.2"
+# wookie = {path = "../wookie"}
 
 # because you can't make dev-dependencies optional and it's huge
 [dependencies.criterion]
 version = "0.3.4"
 features = ["real_blackbox"]
 optional = true
+
+[package.metadata]
+msrv = "1.49.0"
 
 [[bench]]
 name = "boxed"

@@ -35,6 +35,13 @@ pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
     unsafe { (Sender::new(holder), Receiver::new(holder)) }
 }
 
+#[cfg(feature="alloc")]
+/// Like [`hatch`], but configured to close after the first message. Returns a [`Sender`]/[`Receiver`] pair.
+pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
+    let (s, r) = hatch();
+    (s.close_on_send(true), r.close_on_receive(true))
+}
+
 /// Creates a new hatch backed by a ref to an existing Hatch. Unlike
 /// [`hatch`], this is not allocated on the stack and is bound by the
 /// lifetime of the passed mut ref.

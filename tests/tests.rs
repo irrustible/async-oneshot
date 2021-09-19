@@ -18,7 +18,7 @@ fn test(f: impl Fn(i32, sender::Sender<i32>, receiver::Receiver<i32>)) {
         let ptr = &mut hatch as *mut Hatch<i32>;
         let (s, r) = unsafe { borrowed_ptr_hatch(NonNull::new_unchecked(ptr)) };
         f(i, s, r);
-        // Then  a ref.
+        // Then a ref.
         let hatch = Hatch::default();
         pin!(hatch);
         let (s, r) = ref_hatch::<i32>(hatch.as_mut());

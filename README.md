@@ -5,7 +5,9 @@
 [![Documentation](https://docs.rs/async-hatch/badge.svg)](https://docs.rs/async-hatch)
 
 Fast, easy-to-use, async-aware single-producer/single-consumer (SPSC)
-channel for a message at a time. FKA async-oneshot.
+channel for a message at a time. Formerly async-oneshot.
+
+MSRV: 1.49.0 (for `core::hint::spin_loop`)
 
 ## Status: beta
 
@@ -173,7 +175,7 @@ cargo bench --features bench
 
 <!-- We haven't written non-async benches yet -->
 <!-- ```shell -->
-<!-- cargo bench --no-default-features --features alloc,spin_loop_hint,bench -->
+<!-- cargo bench --no-default-features --features alloc,bench -->
 <!-- ``` -->
 
 ## Implementation notes

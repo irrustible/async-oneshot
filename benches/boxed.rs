@@ -1,38 +1,47 @@
+#![allow(unused_must_use)]
 use criterion::*;
 use async_hatch::*;
+use core::pin::Pin;
+use core::mem::ManuallyDrop;
+use core::ops::DerefMut;
+
+#[cfg(feature="async")]
 use wookie::*;
 
-pub fn create_destroy(c: &mut Criterion) {
+fn create_destroy(c: &mut Criterion) {
+    group.throughput(Throughput::Elements(1));
     c.bench_function(
         "boxed/create_destroy",
-        |b| b.iter_batched(|| (), |_| hatch::<usize>(), BatchSize::SmallInput)
+        |b| b.iter(hatch::<usize>
     );
 }
 
-#[allow(unused_must_use)]
-pub fn send_now(c: &mut Criterion) {
+fn send_now(c: &mut Criterion) {
     let mut group = c.benchmark_group("boxed/send_now");
+    group.throughput(Throughput::Elements(1));
     group.bench_function(
         "empty",
         |b| b.iter_batched_ref(
             || hatch::<usize>(),
-            |(ref mut s, _r)| { s.send(42).now().unwrap() },
+            |(ref mut s, _r)| { s.send(42).now() },
             BatchSize::SmallInput
         )
     );
-    // receiver listening turns out to be quite tricky, so we won't bother.
-    // group.bench_function(
-    //     "success - overwrite, receiver not listening",
-    //     |b| b.iter_batched_ref(
-    //         || {
-    //             let (mut send, recv) = hatch::<usize>();
-    //             send.overwrites(true).send(42).now().unwrap();
-    //             (send, recv)
-    //         },
-    //         |(ref mut send, _recv)| { send.send(42).now().unwrap() },
-    //         BatchSize::SmallInput
-    //     )
-    // );
+    group.bench_function(
+        "waited",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, mut r) = hatch::<usize>();
+                {
+                    leaky_dummy!(f: r.receive());
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut send, _recv)| { send.send(42).now() },
+            BatchSize::SmallInput
+        )
+    );
     group.bench_function(
         "full",
         |b| b.iter_batched_ref(
@@ -41,20 +50,20 @@ pub fn send_now(c: &mut Criterion) {
                 s.send(42).now();
                 (s, r)
             },
-            |(ref mut s, _r)| s.send(42).now().unwrap_err(),
+            |(ref mut s, _r)| s.send(42).now(),
             BatchSize::SmallInput
         )
     );
     group.bench_function(
-        "receiver_dropped",
+        "dropped",
         |b| b.iter_batched_ref(
             || hatch::<usize>().0,
-            |s| s.send(42).now().unwrap_err(),
+            |s| s.send(42).now(),
             BatchSize::SmallInput
         )
     );
     group.bench_function(
-        "receiver_closed",
+        "closed",
         |b| b.iter_batched_ref(
             || {
                 // this is annoying because we have to get the
@@ -62,13 +71,13 @@ pub fn send_now(c: &mut Criterion) {
                 let (mut s, mut r) = hatch::<usize>();
                 {
                     let f = r.receive().close_on_receive(true);
-                    woke!(f);
-                    s.send(42).now().unwrap();
-                    unsafe { f.as_mut().poll(); }
+                    dummy!(f);
+                    s.send(42).now();
+                    f.as_mut().poll();
                 }
                 (s, r)
             },
-            |(ref mut s, _r)| s.send(42).now().unwrap_err(),
+            |(ref mut s, _r)| s.send(42).now(),
             BatchSize::SmallInput
         )
     );
@@ -80,78 +89,360 @@ pub fn send_now(c: &mut Criterion) {
                 // receiver to close.
                 let (mut s, mut r) = hatch::<usize>();
                 {
-                    woke!(f: r.receive().close_on_receive(true));
-                    s.send(42).now().unwrap();
-                    unsafe { f.as_mut().poll(); }
+                    dummy!(f: r.receive().close_on_receive(true));
+                    s.send(42).now();
+                    f.as_mut().poll();
                 }
                 s.send(42).now();
                 (s, r)
             },
-            |(ref mut s, _r)| s.send(42).now().unwrap_err(),
+            |(ref mut s, _r)| s.send(42).now(),
             BatchSize::SmallInput
         )
     );
-}
+ }
 
-#[allow(unused_must_use)]
-pub fn send_now_closing(c: &mut Criterion) {
-    let mut group = c.benchmark_group("boxed/send_now_closing");
+#[cfg(feature="async")]
+fn send_await(c: &mut Criterion) {
+    let mut group = c.benchmark_group("boxed/send_await");
+    group.throughput(Throughput::Elements(1));
     group.bench_function(
-        "empty",
+        "empty/first",
         |b| b.iter_batched_ref(
             || hatch::<usize>(),
-            |(ref mut send, _recv)| { send.send(42).close_on_send(true).now().unwrap() },
+            |(ref mut s, _r)| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
             BatchSize::SmallInput
         )
     );
     group.bench_function(
-        "full",
+        "empty/second",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, mut r) = hatch::<usize>();
+                // first we have to fill the channel up
+                {
+                    dummy!(f: s.send(42));
+                    f.poll();
+                }
+                // then we have to poll it to fail
+                {
+                    leaky_dummy!(f: s.send(42));
+                    f.poll();
+                }
+                // then we have to line it up to succeed
+                {
+                    dummy!(f: r.receive());
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _r)| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "waited/first",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, mut r) = hatch::<usize>();
+                {
+                    leaky_dummy!(f: r.receive());
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _r)| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "waited/second",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, mut r) = hatch::<usize>();
+                // first we have to fill the channel up
+                {
+                    dummy!(f: s.send(42));
+                    f.poll();
+                }
+                // then we have to poll it to fail
+                {
+                    leaky_dummy!(f: s.send(42));
+                    f.poll();
+                }
+                // then we have to line it up to succeed
+                {
+                    dummy!(f: r.receive());
+                    f.poll();
+                }
+                {
+                    leaky_dummy!(f: r.receive());
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _r)| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "full/first",
         |b| b.iter_batched_ref(
             || {
                 let (mut s, r) = hatch::<usize>();
                 s.send(42).now();
                 (s, r)
             },
-            |(ref mut s, _r)| s.send(42).close_on_send(true).now().unwrap_err(),
+            |(ref mut s, _r)| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
             BatchSize::SmallInput
         )
     );
     group.bench_function(
-        "receiver_dropped",
+        "full/second",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, r) = hatch::<usize>();
+                s.send(42).now();
+                {
+                    leaky_dummy!(f: s.send(42));
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _r)| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "dropped/first",
         |b| b.iter_batched_ref(
             || hatch::<usize>().0,
-            |send| send.send(42).close_on_send(true).now().unwrap_err(),
+            |s| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
             BatchSize::SmallInput
         )
     );
     group.bench_function(
-        "receiver_closed",
+        "dropped/second",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, r) = hatch::<usize>();
+                s.send(42).now();
+                {
+                    leaky_dummy!(f: s.send(42));
+                    f.poll();
+                }
+                s
+            },
+            |s| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "closed",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, mut r) = hatch::<usize>();
+                {
+                    // the only way to get a close without a drop is to succeed.
+                    dummy!(f: r.receive().close_on_receive(true));
+                    s.send(42).now();
+                    f.as_mut().poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _r)| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "lonely",
         |b| b.iter_batched_ref(
             || {
                 // this is annoying because we have to get the
                 // receiver to close.
                 let (mut s, mut r) = hatch::<usize>();
                 {
-                    woke!(f: r.receive().close_on_receive(true));
+                    dummy!(f: r.receive().close_on_receive(true));
                     s.send(42).now();
-                    unsafe { f.as_mut().poll(); }
+                    f.as_mut().poll();
                 }
+                s.send(42).now();
                 (s, r)
             },
-            |(ref mut send, _r)| send.send(42).close_on_send(true).now().unwrap_err(),
+            |(ref mut s, _r)| {
+                dummy!(f: s.send(42));
+                f.poll()
+            },
             BatchSize::SmallInput
         )
     );
 }
 
-#[allow(unused_must_use)]
-pub fn receive_now(c: &mut Criterion) {
-    let mut group = c.benchmark_group("boxed/receive_now");
+fn send_now_closing(c: &mut Criterion) {
+    let mut group = c.benchmark_group("boxed/send_now_closing");
+    group.throughput(Throughput::Elements(1));
     group.bench_function(
         "empty",
         |b| b.iter_batched_ref(
             || hatch::<usize>(),
-            |(_, ref mut r)| r.receive().now().unwrap(),
+            |(ref mut send, _recv)| { send.send(42).close_on_send(true).now() },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "waited",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, mut r) = hatch::<usize>();
+                {
+                    leaky_dummy!(f: r.receive());
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut send, _recv)| { send.send(42).close_on_send(true).now() },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "full",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, r) = hatch::<usize>();
+                s.send(42).now();
+                (s, r)
+            },
+            |(ref mut s, _r)| s.send(42).close_on_send(true).now(),
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "dropped",
+        |b| b.iter_batched_ref(
+            || hatch::<usize>().0,
+            |send| send.send(42).close_on_send(true).now(),
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "closed",
+        |b| b.iter_batched_ref(
+            || {
+                // this is annoying because we have to get the
+                // receiver to close.
+                let (mut s, mut r) = hatch::<usize>();
+                {
+                    dummy!(f: r.receive().close_on_receive(true));
+                    s.send(42).now();
+                    f.as_mut().poll();
+                }
+                (s, r)
+            },
+            |(ref mut send, _r)| send.send(42).close_on_send(true).now(),
+            BatchSize::SmallInput
+        )
+    );
+}
+
+#[cfg(feature="async")]
+fn send_await_closing(c: &mut Criterion) {
+    let mut group = c.benchmark_group("boxed/send_await_closing");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function(
+        "empty",
+        |b| b.iter_batched_ref(
+            || hatch::<usize>(),
+            |(ref mut s, _recv)| {
+                dummy!(f: s.send(42).close_on_send(true));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "full",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, r) = hatch::<usize>();
+                s.send(42).now();
+                (s, r)
+            },
+            |(ref mut s, _recv)| {
+                dummy!(f: s.send(42).close_on_send(true));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "dropped",
+        |b| b.iter_batched_ref(
+            || hatch::<usize>().0,
+            |ref mut s| {
+                dummy!(f: s.send(42).close_on_send(true));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "closed",
+        |b| b.iter_batched_ref(
+            || {
+                // this is annoying because we have to get the
+                // receiver to close.
+                let (mut s, mut r) = hatch::<usize>();
+                {
+                    dummy!(f: r.receive().close_on_receive(true));
+                    s.send(42).now();
+                    f.as_mut().poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _recv)| {
+                dummy!(f: s.send(42).close_on_send(true));
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+}
+
+fn receive_now(c: &mut Criterion) {
+    let mut group = c.benchmark_group("boxed/receive_now");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function(
+        "empty",
+        |b| b.iter_batched_ref(
+            || hatch::<usize>(),
+            |(_, ref mut r)| r.receive().now(),
             BatchSize::SmallInput
         )
     );
@@ -160,39 +451,39 @@ pub fn receive_now(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || {
                 let (mut send, recv) = hatch::<usize>();
-                send.send(42).now().unwrap();
+                send.send(42).now();
                 (send, recv)
             },
-            |(_, ref mut r)| r.receive().now().unwrap(),
+            |(_, ref mut r)| r.receive().now(),
             BatchSize::SmallInput
         )
     );
     group.bench_function(
-        "empty_sender_dropped",
+        "empty_dropped",
         |b| b.iter_batched_ref(
             || hatch::<usize>().1,
-            |ref mut r| r.receive().now().unwrap_err(),
+            |ref mut r| r.receive().now(),
             BatchSize::SmallInput
         )
     );
     group.bench_function(
-        "full_sender_closed",
+        "full_closed",
         |b| b.iter_batched_ref(
             || {
                 let (mut s, r) = hatch::<usize>();
-                s.send(42).close_on_send(true).now().unwrap();
+                s.send(42).close_on_send(true).now();
                 (s, r)
             },
-            |(_, ref mut r)| r.receive().now().unwrap(),
+            |(_, ref mut r)| r.receive().now(),
             BatchSize::SmallInput
         )
     );
     group.bench_function(
-        "full_sender_dropped",
+        "full_dropped",
         |b| b.iter_batched_ref(
             || {
                 let (mut send, recv) = hatch::<usize>();
-                send.send(42).close_on_send(true).now().unwrap();
+                send.send(42).close_on_send(true).now();
                 recv
             },
             |ref mut recv| recv.receive().now(),
@@ -204,26 +495,27 @@ pub fn receive_now(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || {
                 let (mut send, mut recv) = hatch::<usize>();
-                send.send(42).close_on_send(true).now().unwrap();
+                send.send(42).close_on_send(true).now();
                 recv.receive().now();
                 (send, recv)
             },
-            |(_, ref mut r)| r.receive().now().unwrap_err(),
+            |(_, ref mut r)| r.receive().now(),
             BatchSize::SmallInput
         )
     );
 }
 
-#[allow(unused_must_use)]
-pub fn receive_await(c: &mut Criterion) {
+fn receive_await(c: &mut Criterion) {
     let mut group = c.benchmark_group("boxed/receive_await");
+    group.throughput(Throughput::Elements(1));
     group.bench_function(
         "empty",
         |b| b.iter_batched_ref(
             || hatch::<usize>(),
             |(_, ref mut r)| {
-                woke!(f: r.receive());
-                unsafe { f.as_mut().poll() };
+                let mut fut = ManuallyDrop::new(Dummy::new(r.receive()));
+                let mut f = unsafe { Pin::new_unchecked((&mut fut).deref_mut()) };
+                f.as_mut().poll()
             },
             BatchSize::SmallInput
         )
@@ -233,12 +525,12 @@ pub fn receive_await(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || {
                 let (mut s, r) = hatch::<usize>();
-                s.send(42).now().unwrap();
+                s.send(42).now();
                 (s, r)
             },
             |(_, ref mut r)| {
-                woke!(f: r.receive());
-                unsafe { f.as_mut().poll() };
+                dummy!(f: r.receive());
+                f.as_mut().poll()
             },
             BatchSize::SmallInput
         )
@@ -248,8 +540,8 @@ pub fn receive_await(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || hatch::<usize>().1,
             |ref mut r| {
-                woke!(f: r.receive());
-                unsafe { f.as_mut().poll() };
+                dummy!(f: r.receive());
+                f.as_mut().poll()
             },
             BatchSize::SmallInput
         )
@@ -259,12 +551,12 @@ pub fn receive_await(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || {
                 let (mut s, r) = hatch::<usize>();
-                s.send(42).close_on_send(true).now().unwrap();
+                s.send(42).close_on_send(true).now();
                 (s, r)
             },
             |(_, ref mut r)| {
-                woke!(f: r.receive());
-                unsafe { f.as_mut().poll() };
+                dummy!(f: r.receive());
+                f.as_mut().poll()
             },
             BatchSize::SmallInput
         )
@@ -274,12 +566,12 @@ pub fn receive_await(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || {
                 let (mut s, r) = hatch::<usize>();
-                s.send(42).close_on_send(true).now().unwrap();
+                s.send(42).close_on_send(true).now();
                 r
             },
             |ref mut r| {
-                woke!(f: r.receive());
-                unsafe { f.as_mut().poll() };
+                dummy!(f: r.receive());
+                f.as_mut().poll()
             },
             BatchSize::SmallInput
         )
@@ -289,16 +581,16 @@ pub fn receive_await(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || {
                 let (mut send, mut recv) = hatch::<usize>();
-                send.send(42).close_on_send(true).now().unwrap();
+                send.send(42).close_on_send(true).now();
                 {
-                    woke!(f: recv.receive());
-                    unsafe { f.as_mut().poll() };
+                    dummy!(f: recv.receive());
+                    f.as_mut().poll();
                 }
                 (send, recv)
             },
             |(_, ref mut recv)| {
-                woke!(f: recv.receive());
-                unsafe { f.as_mut().poll() };
+                dummy!(f: recv.receive());
+                f.as_mut().poll()
             },
             BatchSize::SmallInput
         )
@@ -306,15 +598,102 @@ pub fn receive_await(c: &mut Criterion) {
 }
 
 // it turns out to be quite hard to write a lot of these :/
-pub fn wait(c: &mut Criterion) {
+#[cfg(feature="async")]
+fn wait(c: &mut Criterion) {
     let mut group = c.benchmark_group("boxed/wait");
+    group.throughput(Throughput::Elements(1));
     group.bench_function(
-        "first_poll/unwaited",
+        "unwaited/leaky/first",
         |b| b.iter_batched_ref(
             || hatch::<usize>(),
             |(ref mut s, _)| {
-                woke!(f: s.wait());
-                unsafe { f.poll() }
+                leaky_dummy!(f: s.wait());
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "unwaited/leaky/second",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, r) = hatch::<usize>();
+                {
+                    leaky_dummy!(f: s.wait());
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _)| {
+                leaky_dummy!(f: s.wait());
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "unwaited/cancelling/first",
+        |b| b.iter_batched_ref(
+            || hatch::<usize>(),
+            |(ref mut s, _)| {
+                dummy!(f: s.wait());
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "unwaited/cancelling/second",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, r) = hatch::<usize>();
+                {
+                    leaky_dummy!(f: s.wait());
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _)| {
+                dummy!(f: s.wait());
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "waited/first",
+        |b| b.iter_batched_ref(
+            || {
+                let (s, mut r) = hatch::<usize>();
+                {
+                    leaky_dummy!(f: r.receive());
+                    f.poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _)| {
+                dummy!(f: s.wait());
+                f.poll()
+            },
+            BatchSize::SmallInput
+        )
+    );
+    group.bench_function(
+        "waited/second",
+        |b| b.iter_batched_ref(
+            || {
+                let (mut s, mut r) = hatch::<usize>();
+                {
+                    leaky_dummy!(f: s.wait());
+                    f.poll();
+                    leaky_dummy!(g: r.receive()); 
+                    g.poll();
+                }
+                (s, r)
+            },
+            |(ref mut s, _)| {
+                dummy!(f: s.wait());
+                f.poll()
             },
             BatchSize::SmallInput
         )
@@ -324,8 +703,8 @@ pub fn wait(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || hatch::<usize>().0,
             |send| {
-                woke!(f: send.wait());
-                unsafe { f.poll() }
+                dummy!(f: send.wait());
+                f.poll()
             },
             BatchSize::SmallInput
         )
@@ -335,26 +714,56 @@ pub fn wait(c: &mut Criterion) {
         |b| b.iter_batched_ref(
             || {
                 let (mut s, mut r) = hatch::<usize>();
-                s.send(42).now().unwrap();
-                r.receive().close_on_receive(true).now().unwrap();
+                s.send(42).now();
+                r.receive().close_on_receive(true).now();
                 (s, r)
             },
             |(ref mut s, _)| {
-                woke!(f: s.wait());
-                unsafe { f.poll() }
+                dummy!(f: s.wait());
+                f.poll()
             },
             BatchSize::SmallInput
         )
     );
 }
 
+#[cfg(feature="async")]
+fn one_shot(c: &mut Criterion) {
+    let mut group = c.benchmark_group("boxed/oneshot");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function(
+        "send_now_receive_await",
+        |b| b.iter(|| {
+            let (mut s, mut r) = oneshot::<usize>();
+            s.send(42).now();
+            dummy!(f: r.receive());
+            f.poll()
+        })
+    );
+}
+
+
+#[cfg(feature="async")]
+criterion_group!(
+    benches,
+    create_destroy,
+    send_now,
+    send_now_closing,
+    send_await,
+    send_await_closing,
+    receive_now,
+    receive_await,
+    wait,
+    one_shot,
+);
+
+#[cfg(not(feature="async"))]
 criterion_group!(
     benches,
     create_destroy,
     send_now,
     send_now_closing,
     receive_now,
-    receive_await,
-    wait,
 );
+
 criterion_main!(benches);

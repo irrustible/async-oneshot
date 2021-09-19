@@ -19,8 +19,9 @@ pub struct Receiver<'a, T> {
     flags: Flags,
 }
 
-// A `Receiver<T>` is Send+Sync if T is Send
+// A `Receiver<T>` is Send+Sync if T is Send.
 unsafe impl<'a, T: Send> Send for Receiver<'a, T> {}
+// This is okay because we require a mut ref to do anything useful.
 unsafe impl<'a, T: Send> Sync for Receiver<'a, T> {}
 
 macro_rules! recover_if_they_closed {
@@ -95,7 +96,7 @@ impl<'a, T> Receiver<'a, T> {
     #[inline(always)]
     fn lock(&mut self) -> usize {
         let flags = self.hatch.lock();
-        self.flags |= flags & R_CLOSE;
+        self.flags |= flags & S_CLOSE;
         flags
     }
     
@@ -105,7 +106,7 @@ impl<'a, T> Receiver<'a, T> {
     #[inline(always)]
     fn xor(&mut self, value: usize) -> usize {
         let flags = self.hatch.flags.fetch_xor(value, orderings::MODIFY);
-        self.flags |= flags & R_CLOSE;
+        self.flags |= flags & S_CLOSE;
         flags
     }
 
@@ -115,7 +116,7 @@ impl<'a, T> Receiver<'a, T> {
     #[inline(always)]
     fn and(&mut self, value: usize) -> usize {
         let flags = self.hatch.flags.fetch_and(value, orderings::MODIFY);
-        self.flags |= flags & R_CLOSE;
+        self.flags |= flags & S_CLOSE;
         flags
     }
 
@@ -218,7 +219,7 @@ impl<'a, 'b, T> Receiving<'a, 'b, T> {
         let value = shared.value.take();
         if any_flag(flags, S_CLOSE) { return value.map(Some).ok_or(Closed); }
         #[cfg(not(feature="async"))] {
-            // Dropping does not require taking a lock, so we can't just do a
+            // Dropping does not require taking a lock, so we can't just do a store.
             if value.is_some() { 
                 self.receiver.xor(LOCK | closes); // Maybe close, branchlessly.
                 self.receiver.flags |= closes;
@@ -250,35 +251,34 @@ impl<'a, 'b, T> Future for Receiving<'a, 'b, T> {
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         // Safe because we do not move out of self.
         let this = unsafe { self.project() };
-        // Check for signs of life
+        // If we are closed, we have nothing to do
         if any_flag(this.flags, R_CLOSE) { return Poll::Ready(Err(Closed)); }
-        // We need to take a lock to have access to the innards
+        // We need to take a lock for exclusive access.
         let flags = this.receiver.lock();
         let shared = unsafe { &mut *this.receiver.hatch.inner.get() };
         let value = shared.value.take();
+        // If the sender is closed, we're done.
         if any_flag(flags, S_CLOSE) { return Poll::Ready(value.ok_or(Closed)); }
-        // Okay, we're good to go.
-        let sender = shared.sender.take();
+        // Take the sender's waker
+        let waker = shared.sender.take();
         if let Some(v) = value {
-            // We don't need to wait anymore
-            let _waker = shared.receiver.take();
-            // We have exclusive access because even dropping takes a lock in async mode.
-            // We branchlessly add the close flag if we are set to close on success.
+            // We don't need to wait anymore, yank our own waker.
+            let _delay_drop = shared.receiver.take();
+            // If we are set to close on success, we add our close flag.
             let closes = r_closes(this.flags);
+            // store is enough because we have the lock.
             this.receiver.hatch.flags.store(flags | closes, orderings::STORE);
-            this.flags &= !WAITING;
-            this.receiver.flags |= closes;
-            if let Some(waker) = sender { waker.wake(); } // wake if necessary
+            this.flags &= !WAITING; // Disable our destructor.
+            this.receiver.flags |= closes; // Copy back the closed flag if set.
+            if let Some(waker) = waker { waker.wake(); } // wake if necessary
             Poll::Ready(Ok(v))
         } else {
-            // We need to wait and unlock.
-            let _waker = shared.receiver.replace(ctx.waker().clone());
-            // We have exclusive access because even dropping takes a lock in async mode.
-            // We branchlessly add the close flag if we are set to close on success.
+            // If we are set to close on success, we add our close flag.
+            let _delay_drop = shared.receiver.replace(ctx.waker().clone());
+            // Store is enough because we have the lock.
             this.receiver.hatch.flags.store(flags, orderings::STORE);
-            this.flags |= WAITING;
-            // We have to wake the sender
-            if let Some(waker) = sender { waker.wake(); }
+            this.flags |= WAITING; // Enable our destructor
+            if let Some(waker) = waker { waker.wake(); } // Wake if required.
             Poll::Pending
         }
     }
@@ -286,10 +286,14 @@ impl<'a, 'b, T> Future for Receiving<'a, 'b, T> {
 
 #[cfg(all(feature="async", not(feature="messy")))]
 impl<'a, 'b, T> Drop for Receiving<'a, 'b, T> {
+    // Clean out the waker to avoid a spurious wake. This would not
+    // pose a correctness problem, but we strongly suspect this drop
+    // method is faster than your executor can schedule.
     fn drop(&mut self) {
-        if any_flag(self.receiver.flags, R_CLOSE) { return; }
         // If we are not waiting, we don't need to do anythning.
         if no_flag(self.flags, WAITING) { return; }
+        // Likewise if the other side is closed.
+        if any_flag(self.receiver.flags, S_CLOSE) { return; }
         // We'll need a lock as usual
         let flags = self.receiver.lock();
         if no_flag(flags, S_CLOSE) {
