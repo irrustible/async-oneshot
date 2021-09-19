@@ -238,6 +238,7 @@ pub fn any_flag(haystack: Flags, needle: Flags) -> bool {
 }
 
 #[inline(always)]
+#[cfg(feature="async")]
 pub fn no_flag(haystack: Flags, needle: Flags) -> bool {
     (haystack & needle) == 0
 }

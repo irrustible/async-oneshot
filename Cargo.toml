@@ -23,7 +23,6 @@ bench = ["criterion"] # because you can't make dev-dependencies optional and it'
 [dev-dependencies]
 futures-micro = "0.5.0"
 wookie = "0.3.1"
-# wookie = { path = "../wookie" }
 
 # because you can't make dev-dependencies optional and it's huge
 [dependencies.criterion]

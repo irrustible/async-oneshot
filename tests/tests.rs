@@ -1,14 +1,14 @@
 use async_hatch::{*, sender::SendErrorKind};
-#[cfg(feature="async")]
 use futures_micro::prelude::*;
 use core::mem::drop;
 use core::ptr::NonNull;
+#[cfg(feature="async")]
 use wookie::*;
 
 fn test(f: impl Fn(i32, sender::Sender<i32>, receiver::Receiver<i32>)) {
     let limit = if cfg!(miri) { 10 } else { 10_000 };
     for i in 0..limit {
-        #![cfg(feature="alloc")] {
+        #[cfg(feature="alloc")] {
             // First try with a box.
             let (s, r) = hatch();
             f(i, s, r);

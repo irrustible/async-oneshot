@@ -145,7 +145,7 @@ impl<'a, T> Sender<'a, T> {
         self.flags |= flags & R_CLOSE;
         flags
     }
-    
+
     // Performs a fetch_xor on the hatch flags, copying the receiver
     // close flag if it is set.
     #[cfg(not(feature="async"))]
@@ -388,16 +388,12 @@ impl<'a, 'b, T> Wait<'a, 'b, T> {
 
 #[cfg(all(feature="async", not(feature="messy")))]
 impl<'a, 'b, T> Drop for Wait<'a, 'b, T> {
-    // clean out the waker. essentially this makes our benchmarks worse but should improve real
-    // world performance, since we assume that an async executor can't match our performance.
     fn drop(&mut self) {
-        if WAITING != (self.flags | self.sender.flags) & (S_CLOSE | WAITING) { return; }
-        // We'll need a lock as usual
+        if WAITING != (self.flags | self.sender.flags) & (S_CLOSE | WAITING) { return; } // Nothing to do.
         let flags = self.sender.lock();
-        // Our cleanup is to remove the waker. Also release the lock.
         let shared = unsafe { &mut *self.sender.hatch.inner.get() };
-        let _delay_drop = shared.sender.take();
-        self.sender.hatch.flags.store(flags, orderings::STORE);
+        let _delay_drop = shared.sender.take();  // Unwait.
+        self.sender.hatch.flags.store(flags, orderings::STORE); // Unlock
     }
 }
 
