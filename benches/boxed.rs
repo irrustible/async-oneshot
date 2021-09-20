@@ -9,10 +9,11 @@ use core::ops::DerefMut;
 use wookie::*;
 
 fn create_destroy(c: &mut Criterion) {
+    let mut group = c.benchmark_group("boxed");
     group.throughput(Throughput::Elements(1));
-    c.bench_function(
-        "boxed/create_destroy",
-        |b| b.iter(hatch::<usize>
+    group.bench_function(
+        "create_destroy",
+        |b| b.iter(|| hatch::<usize>())
     );
 }
 
