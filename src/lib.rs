@@ -43,7 +43,7 @@ pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
 }
 
 /// Creates a new hatch backed by a ref to an existing Hatch. Unlike
-/// [`hatch`], this is not allocated on the stack and is bound by the
+/// [`hatch`], this is not allocated on the heap and is bound by the
 /// lifetime of the passed mut ref.
 pub fn ref_hatch<T>(
     hatch: Pin<&mut Hatch<T>>
