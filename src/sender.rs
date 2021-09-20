@@ -361,7 +361,6 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
                     // If we closed, that will have an effect beyond this
                     // object, so we need to copy the flag to the sender.
                     self.sender.flags |= closes;
-                    forget(self); // Disable our destructor.
                     Ok(value)
                 }
             }
@@ -392,7 +391,6 @@ impl<'a, 'b, T> Sending<'a, 'b, T> {
                 // closed in between.
                 let flags = self.sender.xor(LOCK, Ordering::Relaxed);
                 if any_flag(flags, R_CLOSE) {
-                    forget(self); // Disable our destructor.
                     return Err(SendError::closed(shared.value.take().unwrap()));
                 }
             }
