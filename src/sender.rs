@@ -1,6 +1,7 @@
 use crate::*;
 use core::mem::forget;
 #[cfg(feature="async")]
+use core::panic::UnwindSafe;
 use core::{future::Future, pin::Pin, task::{Context, Poll}};
 
 #[derive(Debug,Eq,PartialEq)]
@@ -277,6 +278,7 @@ pub struct Sending<'a, 'b, T> {
 
 unsafe impl<'a, 'b, T: Send> Send for Sending<'a, 'b, T> {}
 unsafe impl<'a, 'b, T: Send> Sync for Sending<'a, 'b, T> {}
+impl<'a, 'b, T> UnwindSafe for Sending<'a, 'b, T> {}
 
 impl<'a, 'b, T> Sending<'a, 'b, T> {
     /// Gets the value of the `overwrite` option. See the [`Sending`] docs for an explanation.
@@ -495,6 +497,8 @@ pub struct Wait<'a, 'b, T> {
     sender: &'b mut Sender<'a, T>,
     flags:  Flags,
 }
+
+impl<'a, 'b, T> UnwindSafe for Wait<'a, 'b, T> {}
 
 #[cfg(feature="async")]
 impl<'a, 'b, T> Wait<'a, 'b, T> {

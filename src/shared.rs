@@ -2,6 +2,7 @@ use crate::*;
 
 use core::cell::UnsafeCell;
 use core::ops::Deref;
+use core::panic::{RefUnwindSafe, UnwindSafe};
 use core::ptr::NonNull;
 
 use core::sync::atomic::AtomicU8;
@@ -36,6 +37,9 @@ pub struct Hatch<T> {
     pub(crate) inner: UnsafeCell<Shared<T>>,
 }
 
+impl<T> RefUnwindSafe for Hatch<T> {}
+impl<T> UnwindSafe for Hatch<T> {}
+
 impl<T> Hatch<T> {
     /// Takes the lock, returning the pre-modification flags when
     /// either when the lock has been taken or a closed flag was seen.
@@ -57,7 +61,7 @@ impl<T> Hatch<T> {
         should        
     }
 
-    /// Like [`reclaim`], but does not check the stamp, eliding an
+    /// Like [`Hatch::reclaim`], but does not check the stamp, eliding an
     /// atomic load.
     ///
     /// # Safety

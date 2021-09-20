@@ -1,5 +1,6 @@
 use crate::*;
 
+use core::panic::UnwindSafe;
 #[cfg(feature="async")]
 use core::{future::Future, pin::Pin, task::{Context, Poll}};
 
@@ -213,6 +214,8 @@ pub struct Receiving<'a, 'b, T> {
 
 unsafe impl<'a, 'b, T: Send> Send for Receiving<'a, 'b, T> {}
 unsafe impl<'a, 'b, T: Send> Sync for Receiving<'a, 'b, T> {}
+
+impl<'a, 'b, T> UnwindSafe for Receiving<'a, 'b, T> {}
 
 impl<'a, 'b, T> Receiving<'a, 'b, T> {
     /// Gets the value of the `close_on_receive` option. the [`Receiving`] docs for an explanation.
