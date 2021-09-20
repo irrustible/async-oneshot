@@ -1,7 +1,6 @@
 use async_hatch::{*, sender::SendErrorKind};
 use futures_micro::prelude::*;
 use core::mem::drop;
-use core::ptr::NonNull;
 #[cfg(feature="async")]
 use wookie::*;
 
@@ -13,11 +12,6 @@ fn test(f: impl Fn(i32, sender::Sender<i32>, receiver::Receiver<i32>)) {
             let (s, r) = hatch();
             f(i, s, r);
         }
-        // Then a borrowed ptr
-        let mut hatch = Hatch::default();
-        let ptr = &mut hatch as *mut Hatch<i32>;
-        let (s, r) = unsafe { borrowed_ptr_hatch(NonNull::new_unchecked(ptr)) };
-        f(i, s, r);
         // Then a ref.
         let hatch = Hatch::default();
         pin!(hatch);
