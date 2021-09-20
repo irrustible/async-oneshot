@@ -40,7 +40,7 @@ impl<T> Hatch<T> {
     #[inline(always)]
     pub(crate) fn lock(&self) -> Flags {
         loop {
-            let flags = self.flags.fetch_or(LOCK, orderings::MODIFY);
+            let flags = self.flags.fetch_or(LOCK, Ordering::Acquire);
             if LOCK != flags & (LOCK | R_CLOSE | S_CLOSE) { return flags }
             spin_loop();
         }
@@ -49,7 +49,7 @@ impl<T> Hatch<T> {
     /// Resets the hatch so it can be reused. Checks the stamp to
     /// ensure the hatch is marked for reclamation. Returns true on success.
     pub fn reclaim(&self) -> bool {
-        let should = RECLAIMABLE == self.flags.load(orderings::LOAD);
+        let should = RECLAIMABLE == self.flags.load(Ordering::Acquire);
         // Safe because it's no longer in use.
         if should { unsafe { self.reclaim_unchecked(); } }
         should        
@@ -63,7 +63,8 @@ impl<T> Hatch<T> {
     /// Safe if the Sender and Receiver have both closed.
     #[inline(always)]
     pub unsafe fn reclaim_unchecked(&self) {
-        self.flags.store(0, orderings::STORE)
+        self.inner.get().as_mut().unwrap().reset();
+        self.flags.store(0, Ordering::Release)
     }
 }
 
@@ -107,7 +108,7 @@ impl<'a, T> Holder<'a, Hatch<T>> {
             // To reclaim a borrowed hatch, we clean the state and set
             // the flags to our sentinel 'reclaimable' value.
             (*self.inner.get()).reset();
-            self.flags.store(MARK_ON_DROP, orderings::STORE)
+            self.flags.store(MARK_ON_DROP, Ordering::Release)
         }
         // Otherwise there's nothing to do
     }
@@ -115,7 +116,7 @@ impl<'a, T> Holder<'a, Hatch<T>> {
     // Safe only if we are the last active referent to the hatch
     pub(crate) unsafe fn recycle(self) {
         (*self.inner.get()).reset();
-        self.flags.store(0, orderings::STORE);
+        self.flags.store(0, Ordering::Release);
     }
 }
 
@@ -239,10 +240,3 @@ pub fn no_flag(haystack: Flags, needle: Flags) -> bool {
 // pub fn all_flags(haystack: Flags, needle: Flags) -> bool {
 //     (haystack & needle) == needle
 // }
-
-pub mod orderings {
-    use core::sync::atomic::Ordering;
-    pub const LOAD:   Ordering = Ordering::Acquire;
-    pub const STORE:  Ordering = Ordering::Release;
-    pub const MODIFY: Ordering = Ordering::AcqRel;
-}

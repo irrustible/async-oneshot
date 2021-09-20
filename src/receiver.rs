@@ -65,7 +65,7 @@ impl<'a, T> Receiver<'a, T> {
         if any_flag(self.flags, R_CLOSE) { return Err(RecoverError::Closed); }
         recover_if_they_closed!(self.flags, self);
         // We don't know so we have to check.
-        let flags = self.hatch.flags.load(orderings::LOAD);
+        let flags = self.hatch.flags.load(Ordering::Acquire);
         recover_if_they_closed!(flags, self);
         Err(RecoverError::Live)
     }
@@ -115,7 +115,7 @@ impl<'a, T> Receiver<'a, T> {
     #[cfg(not(feature="async"))]
     #[inline(always)]
     fn xor(&mut self, value: usize) -> usize {
-        let flags = self.hatch.flags.fetch_xor(value, orderings::MODIFY);
+        let flags = self.hatch.flags.fetch_xor(value, Ordering::AcqRel);
         self.flags |= flags & S_CLOSE;
         flags
     }
@@ -125,7 +125,7 @@ impl<'a, T> Receiver<'a, T> {
     #[cfg(not(feature="async"))]
     #[inline(always)]
     fn and(&mut self, value: usize) -> usize {
-        let flags = self.hatch.flags.fetch_and(value, orderings::MODIFY);
+        let flags = self.hatch.flags.fetch_and(value, Ordering::Release);
         self.flags |= flags & S_CLOSE;
         flags
     }
@@ -158,7 +158,7 @@ impl<'a, T> Drop for Receiver<'a, T> {
         cleanup_if_they_closed!(self.flags, self);
         #[cfg(not(feature="async"))] {
             // Without async, we just set the flag and check we won.
-            let flags = self.hatch.flags.fetch_or(R_CLOSE, orderings::MODIFY);
+            let flags = self.hatch.flags.fetch_or(R_CLOSE, Ordering::Acquire);
             cleanup_if_they_closed!(flags, self);
         }
         #[cfg(feature="async")] {
@@ -169,7 +169,7 @@ impl<'a, T> Drop for Receiver<'a, T> {
             let _recv = shared.receiver.take(); // we won't be waiting any more
             let sender = shared.sender.take();  // we might need to wake them
             // mark us closed and release the lock in one smooth action.
-            self.hatch.flags.store(flags | R_CLOSE, orderings::STORE);
+            self.hatch.flags.store(flags | R_CLOSE, Ordering::Release);
             // Finally, wake the sender if they are waiting.
             if let Some(waker) = sender { waker.wake(); }
         }
@@ -251,7 +251,7 @@ impl<'a, 'b, T> Receiving<'a, 'b, T> {
         }
         #[cfg(feature="async")] {
             let sender =  shared.sender.take(); // Move the wake out of the critical region.
-            self.receiver.hatch.flags.store(flags | closes, orderings::STORE); // Unlock
+            self.receiver.hatch.flags.store(flags | closes, Ordering::Release); // Unlock
             self.receiver.flags |= closes;                                     // Propagate any close.
             if let Some(waker) = sender { waker.wake(); }               // Wake
             Ok(value)
@@ -287,7 +287,7 @@ impl<'a, 'b, T> Future for Receiving<'a, 'b, T> {
             // If we are set to close on success, we add our close flag.
             let closes = r_closes(this.flags);
             // store is enough because we have the lock.
-            this.receiver.hatch.flags.store(flags | closes, orderings::STORE);
+            this.receiver.hatch.flags.store(flags | closes, Ordering::Release);
             this.flags &= !WAITING; // Disable our destructor.
             this.receiver.flags |= closes; // Copy back the closed flag if set.
             if let Some(waker) = waker { waker.wake(); } // wake if necessary
@@ -296,7 +296,7 @@ impl<'a, 'b, T> Future for Receiving<'a, 'b, T> {
             // If we are set to close on success, we add our close flag.
             let _delay_drop = shared.receiver.replace(ctx.waker().clone());
             // Store is enough because we have the lock.
-            this.receiver.hatch.flags.store(flags, orderings::STORE);
+            this.receiver.hatch.flags.store(flags, Ordering::Release);
             this.flags |= WAITING; // Enable our destructor
             if let Some(waker) = waker { waker.wake(); } // Wake if required.
             Poll::Pending
@@ -320,7 +320,7 @@ impl<'a, 'b, T> Drop for Receiving<'a, 'b, T> {
             // Our cleanup is to remove the waker. Also release the lock.
             let shared = unsafe { &mut *self.receiver.hatch.inner.get() };
             let _delay_drop = shared.receiver.take();
-            self.receiver.hatch.flags.store(flags, orderings::STORE);
+            self.receiver.hatch.flags.store(flags, Ordering::Release);
         }
     }
 }
