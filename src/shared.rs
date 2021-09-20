@@ -1,8 +1,10 @@
+use crate::*;
+
 use core::cell::UnsafeCell;
 use core::ops::Deref;
 use core::ptr::NonNull;
 
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::AtomicU8;
 
 #[cfg(feature="alloc")]
 use alloc::boxed::Box;
@@ -174,14 +176,14 @@ impl<T> Default for Shared<T> {
     }
 }
 
-pub type AtomicFlags = AtomicUsize;
-pub type Flags = usize;
+pub type AtomicFlags = AtomicU8;
+pub type Flags = u8;
 
 //// Atomic flags ////
 
 /// This magic value is used to notify an external memory manager that both sides have
 /// closed and the hatch may be reclaimed.
-pub const RECLAIMABLE: Flags = usize::MAX;
+pub const RECLAIMABLE: Flags = u8::MAX;
 
 /// Exclusive access to the shared data.
 pub const LOCK:    Flags = 1;
