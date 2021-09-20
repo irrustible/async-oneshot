@@ -36,7 +36,7 @@ pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
 }
 
 #[cfg(feature="alloc")]
-/// Like [`hatch`], but configured to close after the first message. Returns a [`Sender`]/[`Receiver`] pair.
+/// A single-use version of [`hatch`].
 pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
     let (s, r) = hatch();
     (s.close_on_send(true), r.close_on_receive(true))
@@ -66,19 +66,3 @@ pub unsafe fn ref_hatch_unchecked<T>(
     let holder = Holder::Ref(hatch);
     (sender::Sender::new(holder), receiver::Receiver::new(holder))
 }
-
-/// Creates a new hatch backed by a `core::ptr::NonNull` to an
-/// existing [`Hatch`] whose lifetime is asserted to be whatever
-/// lifetime you say it is.
-///
-/// # Safety
-///
-/// You must not permit multiple live senders or receivers to exist.
-pub unsafe fn borrowed_ptr_hatch<'a, T>(
-    hatch: NonNull<Hatch<T>>
-) -> (sender::Sender<'a, T>, receiver::Receiver<'a, T>) {
-    let holder = Holder::BorrowedPtr(hatch);
-    // Safe because we have exclusive access
-    (sender::Sender::new(holder), receiver::Receiver::new(holder))
-}
-

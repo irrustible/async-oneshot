@@ -91,8 +91,6 @@ impl<T> Default for Hatch<T> {
 pub enum Holder<'a, T> {
     // Lifetime-bound reference.
     Ref(&'a T),
-    // A pointer we do not own and will not attempt to free.
-    BorrowedPtr(NonNull<T>),
     // A pointer produced from [`Box::leak`] that's potentially
     // shared with other holders.
     #[cfg(feature="alloc")]
@@ -129,7 +127,6 @@ impl<'a, T> Clone for Holder<'a, T> {
     fn clone(&self) -> Self {
         match self {
             Holder::Ref(r) => Holder::Ref(r),
-            Holder::BorrowedPtr(r) => Holder::BorrowedPtr(*r),
             #[cfg(feature="alloc")]
             Holder::SharedBoxPtr(r) => Holder::SharedBoxPtr(*r),
         }
@@ -143,7 +140,6 @@ impl<'a, T> Deref for Holder<'a, T> {
     fn deref(&self) -> &T {
         match self {
             Holder::Ref(b) => b,
-            Holder::BorrowedPtr(ptr)  => unsafe { ptr.as_ref() },
             #[cfg(feature="alloc")]
             Holder::SharedBoxPtr(ptr) => unsafe { ptr.as_ref() },
         }
