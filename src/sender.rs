@@ -44,6 +44,16 @@ pub enum SendErrorKind {
 ///
 /// The first two of these options may also be set directly on a
 /// [`Sending`] object, in which case they only apply to that operation.
+///
+/// ## Examples
+///
+/// ```
+/// use async_hatch::*;
+///
+/// let (mut sender, mut receiver) = hatch::<usize>();
+/// sender.send(42).now().unwrap();
+/// assert_eq!(receiver.receive().now(), Ok(Some(42)));
+/// ```
 #[derive(Debug)]
 pub struct Sender<'a, T> {
     hatch: Holder<'a, Hatch<T>>,
@@ -248,6 +258,16 @@ impl<'a, T> Drop for Sender<'a, T> {
 /// This struct is a `Future` which polls ready when either the
 /// receive was successful or the `Sender` has closed. Note that the
 /// `Future` impl ignores the `overwrite` option (`now` does not).
+///
+/// ## Examples
+///
+/// ```
+/// use async_hatch::*;
+///
+/// let (mut sender, mut receiver) = hatch::<usize>();
+/// sender.send(42).now().unwrap();
+/// assert_eq!(receiver.receive().now(), Ok(Some(42)));
+/// ```
 #[derive(Debug)]
 pub struct Sending<'a, 'b, T> {
     sender: &'b mut Sender<'a, T>,
@@ -445,6 +465,33 @@ impl<'a, 'b, T> Drop for Sending<'a, 'b, T> {
 /// A `Future` that waits for there to be capacity to send and a
 /// `Receiver` listening. This allows computing an expensive value on
 /// demand (lazy send).
+///
+/// ## Examples
+///
+/// ```
+/// use core::task::Poll;
+/// use async_hatch::*;
+/// use wookie::wookie; // a stepping futures executor.
+///
+/// let (mut sender, mut receiver) = hatch::<usize>();
+/// // The sender has a large message to send, it wants to wait until
+/// // the receiver is available
+/// wookie!(r: receiver.receive());
+/// { // Contains the scope of `s` so we can reuse the sender in a minute
+///     wookie!(s: sender.wait());
+///     assert_eq!(s.poll(), Poll::Pending);
+///     // The receiver comes along and waits.
+///     assert_eq!(r.poll(), Poll::Pending);
+///     // That wakes the sender.
+///     assert_eq!(s.woken(), 1);
+///     // The sender completes its wait.
+///     assert_eq!(s.poll(), Poll::Ready(Ok(())));
+/// }
+/// // It can now calculate its expensive value and send it.
+/// assert_eq!(sender.send(42).now(), Ok(None));
+/// // And finally, the receiver can receive it.
+/// assert_eq!(r.poll(), Poll::Ready(Ok(42)));
+/// ```
 #[cfg(feature="async")]
 pub struct Wait<'a, 'b, T> {
     sender: &'b mut Sender<'a, T>,

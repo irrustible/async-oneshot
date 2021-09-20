@@ -13,6 +13,16 @@ use core::{future::Future, pin::Pin, task::{Context, Poll}};
 ///
 /// `close_on_receive` may also be set directly on a [`Receiving`] object, in which case it only
 /// applies to that object and not any future operations (although if it succeeds, it won't matter).
+///
+/// ## Examples
+///
+/// ```
+/// use async_hatch::*;
+///
+/// let (mut sender, mut receiver) = hatch::<usize>();
+/// sender.send(42).now().unwrap();
+/// assert_eq!(receiver.receive().now(), Ok(Some(42)));
+/// ```
 #[derive(Debug)]
 pub struct Receiver<'a, T> {
     hatch: Holder<'a, Hatch<T>>,
@@ -185,6 +195,16 @@ impl<'a, T> Drop for Receiver<'a, T> {
 ///
 /// This struct is a `Future` which polls ready when either the
 /// receive was successful or the `Sender` has closed.
+///
+/// ## Examples
+///
+/// ```
+/// use async_hatch::*;
+///
+/// let (mut sender, mut receiver) = hatch::<usize>();
+/// sender.send(42).now().unwrap();
+/// assert_eq!(receiver.receive().now(), Ok(Some(42)));
+/// ```
 #[derive(Debug)]
 pub struct Receiving<'a, 'b, T> {
     receiver: &'b mut Receiver<'a, T>,

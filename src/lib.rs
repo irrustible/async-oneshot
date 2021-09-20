@@ -1,5 +1,43 @@
-//! An easy-to-use, high-performance single-message async channel for
-//! a single sender/receiver pair.
+//! An easy-to-use, high-performance single-message async channel
+//!
+//! ## Examples
+//!
+//! Simple:
+//!
+//! ```
+//! use async_hatch::*;
+//!
+//! let (mut sender, mut receiver) = hatch::<usize>();
+//! sender.send(42).now().unwrap();
+//! assert_eq!(receiver.receive().now(), Ok(Some(42)));
+//! ```
+//!
+//! Lazy send / on-demand computation:
+//!
+//! ```
+//! use core::task::Poll;
+//! use async_hatch::*;
+//! use wookie::wookie; // a stepping futures executor.
+//!
+//! let (mut sender, mut receiver) = hatch::<usize>();
+//! // The sender has a large message to send, it wants to wait until
+//! // the receiver is available
+//! wookie!(r: receiver.receive());
+//! { // Contains the scope of `s` so we can reuse the sender in a minute
+//!     wookie!(s: sender.wait());
+//!     assert_eq!(s.poll(), Poll::Pending);
+//!     // The receiver comes along and waits.
+//!     assert_eq!(r.poll(), Poll::Pending);
+//!     // That wakes the sender.
+//!     assert_eq!(s.woken(), 1);
+//!     // The sender completes its wait.
+//!     assert_eq!(s.poll(), Poll::Ready(Ok(())));
+//! }
+//! // It can now calculate its expensive value and send it.
+//! assert_eq!(sender.send(42).now(), Ok(None));
+//! // And finally, the receiver can receive it.
+//! assert_eq!(r.poll(), Poll::Ready(Ok(42)));
+//! ```
 #![no_std]
 
 #[cfg(feature="alloc")]
@@ -27,6 +65,16 @@ pub type Sender<T> = sender::Sender<'static, T>;
 
 #[cfg(feature="alloc")]
 /// Creates a new hatch backed by a box. Returns a [`Sender`]/[`Receiver`] pair.
+///
+/// ## Examples
+///
+/// ```
+/// use async_hatch::*;
+///
+/// let (mut sender, mut receiver) = hatch::<usize>();
+/// sender.send(42).now().unwrap();
+/// assert_eq!(receiver.receive().now(), Ok(Some(42)));
+/// ```
 pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
     let unbox = Box::leak(Box::new(Hatch::default()));
     let non = unsafe { NonNull::new_unchecked(unbox) };
