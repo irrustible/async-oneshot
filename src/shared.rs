@@ -26,12 +26,8 @@ pub enum RecoverError {
     Closed,
 }
 
-/// Unless you are managing memory yourself, you don't need to know about this object. See
-/// [`crate::hatch`] for creating a managed [`Sender`]/[`Receiver`] pair.
-///
-/// The [`Hatch`] is shared data storage between Sender and Receiver. A `Hatch` may be
-/// created through its [`core::default::Default`] instance. See the functions at the root
-/// of the crate for how to get a Sender and Receiver from one.
+/// The shared internal hatch object. You probably want [`hatch`]
+/// unless you are managing memory yourself.
 #[derive(Debug)]
 pub struct Hatch<T> {
     pub(crate) flags: AtomicFlags,

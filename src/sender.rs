@@ -48,7 +48,7 @@ pub enum SendErrorKind {
 /// ## Examples
 ///
 /// ```
-/// use async_hatch::*;
+/// use async_hatch::hatch;
 ///
 /// let (mut sender, mut receiver) = hatch::<usize>();
 /// sender.send(42).now().unwrap();
@@ -77,18 +77,18 @@ impl<'a, T> Sender<'a, T> {
 
     /// Creates a send operation object which can be used to send a single message.
     #[inline(always)]
-    #[must_use = "Sending does nothing unless you call `.now` or poll it as a Future."]
+    #[must_use = "`send` returns an operation object which you need to call `.now` on or poll as a Future."]
     pub fn send<'b>(&'b mut self, value: T) -> Sending<'a, 'b, T> {
         let flags = self.flags;
         Sending { sender: self, value: Some(value), flags }
     }
 
+    /// Creates an operation object that can wait for the [`Receiver`]
+    /// to be listening. Enables a "lazy send" semantics where you can
+    /// delay producing an expensive value until it's required.
     #[cfg(feature="async")]
     #[inline(always)]
-    // #[must_use = "Wait does nothing unless you poll it as a Future."]
-    /// Creates a disposable object that can wait for the [`Receiver`]
-    /// to be listening. Enables a `lazy-send` semantics where you can
-    /// delay producing an expensive value until it's required.
+    #[must_use = "`wait` returns an operation object which you need to poll as a Future."]
     pub fn wait<'b>(&'b mut self) -> Wait<'a, 'b, T> {
         let flags = self.flags;
         Wait { sender: self, flags }
@@ -178,7 +178,7 @@ impl<'a, T> Sender<'a, T> {
     // Performs a lock on the hatch flags, copying the receiver
     // close flag if it is set.
     #[inline(always)]
-    fn lock(&mut self) -> usize {
+    fn lock(&mut self) -> Flags {
         let flags = self.hatch.lock();
         self.flags |= flags & R_CLOSE;
         flags
@@ -262,7 +262,7 @@ impl<'a, T> Drop for Sender<'a, T> {
 /// ## Examples
 ///
 /// ```
-/// use async_hatch::*;
+/// use async_hatch::hatch;
 ///
 /// let (mut sender, mut receiver) = hatch::<usize>();
 /// sender.send(42).now().unwrap();
@@ -470,7 +470,7 @@ impl<'a, 'b, T> Drop for Sending<'a, 'b, T> {
 ///
 /// ```
 /// use core::task::Poll;
-/// use async_hatch::*;
+/// use async_hatch::hatch;
 /// use wookie::wookie; // a stepping futures executor.
 ///
 /// let (mut sender, mut receiver) = hatch::<usize>();

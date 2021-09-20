@@ -2,21 +2,57 @@
 //!
 //! ## Examples
 //!
-//! Simple:
+//! Synchronous send and receive
 //!
 //! ```
-//! use async_hatch::*;
+//! use async_hatch::hatch;
 //!
 //! let (mut sender, mut receiver) = hatch::<usize>();
 //! sender.send(42).now().unwrap();
 //! assert_eq!(receiver.receive().now(), Ok(Some(42)));
+//! // You can reuse it too.
+//! sender.send(420).now().unwrap();
+//! assert_eq!(receiver.receive().now(), Ok(Some(420)));
 //! ```
 //!
-//! Lazy send / on-demand computation:
+//! Async receive:
 //!
 //! ```
 //! use core::task::Poll;
-//! use async_hatch::*;
+//! use async_hatch::hatch;
+//! use wookie::wookie; // a stepping futures executor.
+//!
+//! let (mut sender, mut receiver) = hatch::<usize>();
+//! wookie!(r: receiver.receive()); // Prepare a receive future for execution.
+//! assert_eq!(r.poll(), Poll::Pending); // The receiver has to wait, there is no value.
+//! assert_eq!(sender.send(42).now(), Ok(None)); // Sender sends.
+//! assert_eq!(r.woken(), 1); // That wakes the receiver.
+//! assert_eq!(r.poll(), Poll::Ready(Ok(42))); // Who gets the value.
+//! ```
+//!
+//! Async send:
+//!
+//! ```
+//! use core::task::Poll;
+//! use async_hatch::hatch;
+//! use wookie::wookie; // a stepping futures executor.
+//!
+//! let (mut sender, mut receiver) = hatch::<usize>();
+//! // prepare our operation futures
+//! sender.send(42).now().unwrap(); // Fill the channel so we can't send.
+//! wookie!(s: sender.send(42));
+//! wookie!(r: receiver.receive());
+//! assert_eq!(s.poll(), Poll::Pending); // Channel full, sender waits.
+//! assert_eq!(r.poll(), Poll::Ready(Ok(42))); // Receiver gets value.
+//! assert_eq!(s.woken(), 1); // That wakes the sender
+//! assert_eq!(s.poll(), Poll::Ready(Ok(()))); // Sender sends.
+//! ```
+//!
+//! Async lazy send / on-demand computation:
+//!
+//! ```
+//! use core::task::Poll;
+//! use async_hatch::hatch;
 //! use wookie::wookie; // a stepping futures executor.
 //!
 //! let (mut sender, mut receiver) = hatch::<usize>();
@@ -45,7 +81,7 @@ extern crate alloc;
 
 #[cfg(feature="alloc")]
 use alloc::boxed::Box;
-use core::{pin::Pin, ptr::NonNull};
+use core::{pin::Pin, ptr::NonNull, sync::atomic::Ordering};
 
 // Things shared between the sender and receiver
 mod shared;
@@ -63,18 +99,20 @@ pub type Receiver<T> = receiver::Receiver<'static, T>;
 /// This is a convenience alias where the lifetime is static.
 pub type Sender<T> = sender::Sender<'static, T>;
 
-#[cfg(feature="alloc")]
-/// Creates a new hatch backed by a box. Returns a [`Sender`]/[`Receiver`] pair.
+/// Creates a new hatch on the heap. Returns its [`Sender`] and [`Receiver`].
 ///
-/// ## Examples
+/// ## Example
 ///
 /// ```
-/// use async_hatch::*;
+/// use async_hatch::hatch;
 ///
 /// let (mut sender, mut receiver) = hatch::<usize>();
 /// sender.send(42).now().unwrap();
 /// assert_eq!(receiver.receive().now(), Ok(Some(42)));
 /// ```
+///
+/// See the documentation at the crate root for more examples.
+#[cfg(feature="alloc")]
 pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
     let unbox = Box::leak(Box::new(Hatch::default()));
     let non = unsafe { NonNull::new_unchecked(unbox) };
@@ -83,16 +121,39 @@ pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
     unsafe { (Sender::new(holder), Receiver::new(holder)) }
 }
 
-#[cfg(feature="alloc")]
 /// A single-use version of [`hatch`].
+///
+/// ## Example
+///
+/// ```
+/// use async_hatch::oneshot;
+///
+/// let (mut sender, mut receiver) = oneshot::<usize>();
+/// sender.send(42).now().unwrap();
+/// assert_eq!(receiver.receive().now(), Ok(Some(42)));
+/// ```
+///
+/// See the documentation at the crate root for more examples.
+#[cfg(feature="alloc")]
 pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
     let (s, r) = hatch();
     (s.close_on_send(true), r.close_on_receive(true))
 }
 
-/// Creates a new hatch backed by a ref to an existing Hatch. Unlike
-/// [`hatch`], this is not allocated on the heap and is bound by the
-/// lifetime of the passed mut ref.
+/// Creates a sender-receiver pair from a pinned mut ref to an existing hatch.
+///
+/// ## Example
+///
+/// ```
+/// use core::pin::Pin;
+/// use async_hatch::{Hatch, ref_hatch};
+/// // We will pin it on the stack for this example.
+/// let mut hatch = Hatch::default();
+/// let mut hatch = unsafe { Pin::new_unchecked(&mut hatch) };
+/// let (mut sender, mut receiver) = ref_hatch(hatch.as_mut());
+/// sender.send(42).now().unwrap();
+/// assert_eq!(receiver.receive().now(), Ok(Some(42)));
+/// ```
 pub fn ref_hatch<T>(
     hatch: Pin<&mut Hatch<T>>
 ) -> (sender::Sender<'_, T>, receiver::Receiver<'_, T>) {

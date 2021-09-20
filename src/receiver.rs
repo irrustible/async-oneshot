@@ -17,7 +17,7 @@ use core::{future::Future, pin::Pin, task::{Context, Poll}};
 /// ## Examples
 ///
 /// ```
-/// use async_hatch::*;
+/// use async_hatch::hatch;
 ///
 /// let (mut sender, mut receiver) = hatch::<usize>();
 /// sender.send(42).now().unwrap();
@@ -53,7 +53,7 @@ impl<'a, T> Receiver<'a, T> {
         Self { hatch, flags: DEFAULT }
     }
 
-    #[must_use = "Receiving does nothing unless you call `.now` or poll it as a Future."]
+    #[must_use = "`receive` returns an operation object which you need to call `.now` on or poll as a Future."]
     /// Returns a disposable object for a single receive operation.
     pub fn receive<'b>(&'b mut self) -> Receiving<'a, 'b, T> {
         let flags = self.flags;
@@ -104,7 +104,7 @@ impl<'a, T> Receiver<'a, T> {
     // Performs a lock on the hatch flags, copying the sender close
     // flag if it is set.
     #[inline(always)]
-    fn lock(&mut self) -> usize {
+    fn lock(&mut self) -> Flags {
         let flags = self.hatch.lock();
         self.flags |= flags & S_CLOSE;
         flags
@@ -199,7 +199,7 @@ impl<'a, T> Drop for Receiver<'a, T> {
 /// ## Examples
 ///
 /// ```
-/// use async_hatch::*;
+/// use async_hatch::hatch;
 ///
 /// let (mut sender, mut receiver) = hatch::<usize>();
 /// sender.send(42).now().unwrap();
