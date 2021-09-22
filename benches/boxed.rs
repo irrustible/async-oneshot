@@ -1,4 +1,4 @@
-#![allow(unused_must_use)]
+#![allow(unused_must_use,unused_mut)]
 use criterion::*;
 use async_hatch::*;
 use core::pin::Pin;
@@ -24,7 +24,7 @@ fn send_now(c: &mut Criterion) {
         "empty",
         |b| b.iter_batched_ref(
             || hatch::<usize>(),
-            |(ref mut s, _r)| { s.send(42).now() },
+            |(ref mut s, _r)| s.send(42).now(),
             BatchSize::SmallInput
         )
     );
@@ -247,7 +247,7 @@ fn send_await(c: &mut Criterion) {
         "dropped/second",
         |b| b.iter_batched_ref(
             || {
-                let (mut s, r) = hatch::<usize>();
+                let (mut s, _r) = hatch::<usize>();
                 s.send(42).now();
                 {
                     leaky_dummy!(f: s.send(42));

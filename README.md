@@ -115,9 +115,12 @@ tl; dr: probably strictly faster than whatever you're using right now.
 This library has been carefully optimised to achieve excellent performance. It has extra features
 that can enable you to squeeze even more performance out of it in some situations.
 
-### Performance Tips
+That said, this is a synchronisation primitive - it explicitly does
+not allow continued progress without the cooperation of the other
+half. The trick to scalable systems is to avoid synchronisation where
+possible. Where you can't, we've got you covered.
 
-We are very very fast. We are probably not your bottleneck. However...
+### Performance Tips
 
 * Make use of the ability to reuse and recycle - drop is the most expensive operation.
 * Setting `closes(true)` before your last (or only!) operation makes the destructor cheaper.
@@ -127,43 +130,40 @@ We are very very fast. We are probably not your bottleneck. However...
 
 ### Microbenchmarks
 
-Microbenchmarks are terrible. You can really only use them as a vague
-indication of performance and to guide library design. If you need
-more than this, benchmark production workloads!
+People have a tendency to read too much into microbenchmarks. They're
+very hard to do well and they probably won't reflect real-world
+performance very well.
 
-Nonetheless, here are some incredibly unscientific numbers from my
-primary dev machine, a Ryzen 9 3900X running alpine linux edge.
+Nonetheless, here are some numbers from my primary dev machine, a
+Ryzen 9 3900X running alpine linux edge.
 
 ```
-create_destroy                      27.866 ns
-send_now/empty                      11.604 ns
-send_now/full                       10.838 ns
-send_now/receiver_dropped           10.887 ns
-send_now/receiver_closed            10.927 ns
-send_now/lonely                     6.5098 ns
-send_now_closing/empty              11.551 ns
-send_now_closing/full               10.785 ns
-send_now_closing/receiver_dropped   10.630 ns
-send_now_closing/receiver_closed    10.801 ns
-receive_now/empty                   9.8392 ns
-receive_now/full                    8.9529 ns
-receive_now/empty_sender_dropped    5.9852 ns
-receive_now/full_sender_closed      9.4870 ns
-receive_now/full_sender_dropped     9.2406 ns
-receive_now/lonely                  2.5341 ns
-receive_await/empty                 14.924 ns
-receive_await/full                  9.3347 ns
-receive_await/empty_sender_dropped  7.4899 ns
-receive_await/full_sender_closed    7.6235 ns
-receive_await/full_sender_dropped   7.5182 ns
-receive_await/lonely                4.9252 ns
-wait/first_poll/unwaited            12.747 ns
-wait/dropped                        8.5824 ns
-wait/closed                         8.5531 ns
+create_destroy               27.866 ns
+send_now/empty               11.604 ns
+send_now/full                10.838 ns
+send_now/dropped             10.887 ns
+send_now/closed              10.927 ns
+send_now/lonely              6.5098 ns
+send_now_closing/empty       11.551 ns
+send_now_closing/full        10.785 ns
+send_now_closing/dropped     10.630 ns
+send_now_closing/closed      10.801 ns
+receive_now/empty            9.8392 ns
+receive_now/full             8.9529 ns
+receive_now/empty_dropped    5.9852 ns
+receive_now/full_closed      9.4870 ns
+receive_now/full_dropped     9.2406 ns
+receive_now/lonely           2.5341 ns
+receive_await/empty          14.924 ns
+receive_await/full           9.3347 ns
+receive_await/empty_dropped  7.4899 ns
+receive_await/full_closed    7.6235 ns
+receive_await/full_dropped   7.5182 ns
+receive_await/lonely         4.9252 ns
+wait/first_poll/unwaited     12.747 ns
+wait/dropped                 8.5824 ns
+wait/closed                  8.5531 ns
 ```
-
-Note: I had emacs and firefox and various things open and i'm using an
-ondemand cpu scheduler, you could do better with this hardware!
 
 You may run the benchmarks yourself with:
 
@@ -171,12 +171,14 @@ You may run the benchmarks yourself with:
 cargo bench --features bench
 ```
 
-<!-- To run them with async disabled: -->
+To run them with async disabled:
 
-<!-- We haven't written non-async benches yet -->
-<!-- ```shell -->
-<!-- cargo bench --no-default-features --features alloc,bench -->
-<!-- ``` -->
+```shell
+cargo bench --no-default-features --features alloc,bench
+```
+
+Currently, the benches require the 'alloc' feature as we haven't
+yet figured out how to handle the others.
 
 ## Implementation notes
 
@@ -206,19 +208,16 @@ The trick we use to enable no-alloc support is to use a `holder` object for refe
 hatch. It's a simple enum, inspired by `std::cow::Cow`, we just have to do different things
 depending on whether we manage the memory or not.
 
-Miri seems to have gotten quite good at detecting silly errors, although it takes about 3 minutes to
-run a `cargo miri test` on my machine :/ We're not sure if repetition helps miri detect things. If
-not we could cut the looping.
+
+
+Miri seems to have gotten quite good at detecting silly errors (setting the wrong flag etc.)
 
 ## TODO
 
 * More tests:
   * Recovery.
   * Reclamation.
-* Port Benches:
-  * Sync boxes
-  * Refs
-  * Pointers
+* Ref/pointer benches (not sure how yet).
 * Github actions setup.
 
 ## Copyright and License

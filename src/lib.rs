@@ -5,6 +5,7 @@
 //! Synchronous send and receive
 //!
 //! ```
+//! #[cfg(feature="alloc")] {
 //! use async_hatch::hatch;
 //!
 //! let (mut sender, mut receiver) = hatch::<usize>();
@@ -13,11 +14,13 @@
 //! // You can reuse it too.
 //! sender.send(420).now().unwrap();
 //! assert_eq!(receiver.receive().now(), Ok(Some(420)));
+//! }
 //! ```
 //!
 //! Async receive:
 //!
 //! ```
+//! #[cfg(all(feature="alloc",feature="async"))] {
 //! use core::task::Poll;
 //! use async_hatch::hatch;
 //! use wookie::wookie; // a stepping futures executor.
@@ -28,11 +31,13 @@
 //! assert_eq!(sender.send(42).now(), Ok(None)); // Sender sends.
 //! assert_eq!(r.woken(), 1); // That wakes the receiver.
 //! assert_eq!(r.poll(), Poll::Ready(Ok(42))); // Who gets the value.
+//! }
 //! ```
 //!
 //! Async send:
 //!
 //! ```
+//! #[cfg(all(feature="alloc",feature="async"))] {
 //! use core::task::Poll;
 //! use async_hatch::hatch;
 //! use wookie::wookie; // a stepping futures executor.
@@ -46,11 +51,13 @@
 //! assert_eq!(r.poll(), Poll::Ready(Ok(42))); // Receiver gets value.
 //! assert_eq!(s.woken(), 1); // That wakes the sender
 //! assert_eq!(s.poll(), Poll::Ready(Ok(()))); // Sender sends.
+//! }
 //! ```
 //!
 //! Async lazy send / on-demand computation:
 //!
 //! ```
+//! #[cfg(all(feature="alloc",feature="async"))] {
 //! use core::task::Poll;
 //! use async_hatch::hatch;
 //! use wookie::wookie; // a stepping futures executor.
@@ -73,6 +80,7 @@
 //! assert_eq!(sender.send(42).now(), Ok(None));
 //! // And finally, the receiver can receive it.
 //! assert_eq!(r.poll(), Poll::Ready(Ok(42)));
+//! }
 //! ```
 #![no_std]
 
@@ -81,12 +89,13 @@ extern crate alloc;
 
 #[cfg(feature="alloc")]
 use alloc::boxed::Box;
-use core::{pin::Pin, ptr::NonNull, sync::atomic::Ordering};
+use core::pin::Pin;
+#[cfg(feature="alloc")]
+use core::ptr::NonNull;
+use core::sync::atomic::Ordering;
 
-// Things shared between the sender and receiver
-mod shared;
-pub use shared::{Closed, Hatch};
-use shared::*;
+pub mod hatch;
+use hatch::*;
 
 pub mod sender;
 pub mod receiver;
@@ -94,10 +103,17 @@ pub mod receiver;
 pub use sender::*;
 pub use receiver::*;
 
-/// This is a convenience alias where the lifetime is static.
-pub type Receiver<T> = receiver::Receiver<'static, T>;
-/// This is a convenience alias where the lifetime is static.
-pub type Sender<T> = sender::Sender<'static, T>;
+#[cfg(feature="alloc")]
+pub mod heap {
+    use alloc::boxed::Box;
+    use crate::{sender, receiver, hatch::Hatch};
+    pub type Sender<T> = sender::Sender<T, Box<Hatch<T>>>;
+    pub type Receiver<T> = receiver::Receiver<T, Box<Hatch<T>>>;
+    pub type Sending<'a, T> = sender::Sending<'a, T, Box<Hatch<T>>>;
+    #[cfg(feature="async")]
+    pub type Wait<'a, T> = sender::Wait<'a, T, Box<Hatch<T>>>;
+    pub type Receiving<'a, T> = receiver::Receiving<'a, T, Box<Hatch<T>>>;
+}
 
 /// Creates a new hatch on the heap. Returns its [`Sender`] and [`Receiver`].
 ///
@@ -113,12 +129,11 @@ pub type Sender<T> = sender::Sender<'static, T>;
 ///
 /// See the documentation at the crate root for more examples.
 #[cfg(feature="alloc")]
-pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
+pub fn hatch<T>() -> (heap::Sender<T>, heap::Receiver<T>) {
     let unbox = Box::leak(Box::new(Hatch::default()));
     let non = unsafe { NonNull::new_unchecked(unbox) };
-    let holder = Holder::SharedBoxPtr(non);
     // Safe because we have exclusive access
-    unsafe { (Sender::new(holder), Receiver::new(holder)) }
+    unsafe { (Sender::new(non), Receiver::new(non)) }
 }
 
 /// A single-use version of [`hatch`].
@@ -135,7 +150,7 @@ pub fn hatch<T>() -> (Sender<T>, Receiver<T>) {
 ///
 /// See the documentation at the crate root for more examples.
 #[cfg(feature="alloc")]
-pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
+pub fn oneshot<T>() -> (heap::Sender<T>, heap::Receiver<T>) {
     let (s, r) = hatch();
     (s.close_on_send(true), r.close_on_receive(true))
 }
@@ -146,22 +161,21 @@ pub fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
 ///
 /// ```
 /// use core::pin::Pin;
-/// use async_hatch::{Hatch, ref_hatch};
+/// use async_hatch::{hatch::Hatch, ref_hatch};
 /// // We will pin it on the stack for this example.
 /// let mut hatch = Hatch::default();
-/// let mut hatch = unsafe { Pin::new_unchecked(&mut hatch) };
-/// let (mut sender, mut receiver) = ref_hatch(hatch.as_mut());
+/// let mut h = unsafe { Pin::new_unchecked(&mut hatch) };
+/// let (mut sender, mut receiver) = ref_hatch(h);
 /// sender.send(42).now().unwrap();
 /// assert_eq!(receiver.receive().now(), Ok(Some(42)));
 /// ```
 pub fn ref_hatch<T>(
     hatch: Pin<&mut Hatch<T>>
-) -> (sender::Sender<'_, T>, receiver::Receiver<'_, T>) {
+) -> (sender::Sender<T, &Hatch<T>>, receiver::Receiver<T, &Hatch<T>>) {
     // Safe because we aren't going to move out of it
-    let hatch = unsafe { Pin::into_inner_unchecked(hatch) };
-    let holder = Holder::Ref(hatch);
+    let hatch = &*unsafe { Pin::into_inner_unchecked(hatch) };
     // Safe because we have exclusive access
-    unsafe { (sender::Sender::new(holder), receiver::Receiver::new(holder)) }
+    unsafe { (sender::Sender::new(hatch), receiver::Receiver::new(hatch)) }
 }
 
 /// Like [`ref_hatch`], but takes an immutable ref.
@@ -171,7 +185,6 @@ pub fn ref_hatch<T>(
 /// You must not permit multiple live senders or receivers to exist.
 pub unsafe fn ref_hatch_unchecked<T>(
     hatch: &Hatch<T>
-) -> (sender::Sender<T>, receiver::Receiver<T>) {
-    let holder = Holder::Ref(hatch);
-    (sender::Sender::new(holder), receiver::Receiver::new(holder))
+) -> (sender::Sender<T, &Hatch<T>>, receiver::Receiver<T, &Hatch<T>>) {
+    (sender::Sender::new(hatch), receiver::Receiver::new(hatch))
 }
