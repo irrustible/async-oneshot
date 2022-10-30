@@ -102,7 +102,7 @@ impl<T> Drop for Inner<T> {
 }
 
 unsafe impl<T: Send> Send for Inner<T> {}
-unsafe impl<T: Sync> Sync for Inner<T> {}
+unsafe impl<T: Send> Sync for Inner<T> {}
 
 #[derive(Clone, Copy)]
 pub(crate) struct State(usize);
