@@ -1,5 +1,8 @@
 # async-oneshot
 
+Currently unmaintained.
+
+<!--
 [![License](https://img.shields.io/crates/l/async-oneshot.svg)](https://github.com/irrustible/async-oneshot/blob/main/LICENSE)
 [![Package](https://img.shields.io/crates/v/async-oneshot.svg)](https://crates.io/crates/async-oneshot)
 [![Documentation](https://docs.rs/async-oneshot/badge.svg)](https://docs.rs/async-oneshot)
@@ -148,6 +151,7 @@ Improvements:
 
 * First real release.
 
+-->
 ## Copyright and License
 
 Copyright (c) 2020 James Laver, async-oneshot contributors.
