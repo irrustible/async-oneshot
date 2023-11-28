@@ -58,7 +58,7 @@ impl<T> Inner<T> {
             }
         } else {
             // SAFETY: We just checked that the value is present and cleared the present bit.
-            InnerValue::Present(unsafe { (&mut *self.value.get()).assume_init_read() })
+            InnerValue::Present(unsafe { (*self.value.get()).assume_init_read() })
         }
     }
 
@@ -69,7 +69,7 @@ impl<T> Inner<T> {
 
         // This could leak if this method is ever called twice - its the responsibility of the
         // sender to ensure that this is not the case.
-        unsafe { (&mut *self.value.get()).write(value) };
+        unsafe { (*self.value.get()).write(value) };
         self.state
             .fetch_or(1 << VALUE_PRESENT_BIT, Ordering::Release);
     }
@@ -102,7 +102,7 @@ impl<T> Drop for Inner<T> {
         // Drop the value if present.
         if self.state.load(Ordering::Acquire) & (1 << VALUE_PRESENT_BIT) != 0 {
             // SAFETY: We just checked that the value is present.
-            unsafe { (&mut *self.value.get()).assume_init_drop() };
+            unsafe { (*self.value.get()).assume_init_drop() };
         }
     }
 }

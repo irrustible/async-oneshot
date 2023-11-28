@@ -57,7 +57,7 @@ impl<T, const PRESENT_BIT: usize, const LOCKED_BIT: usize> Mutex<T, PRESENT_BIT,
             // SAFETY: We own a mutable reference to self and the present bit is set.
             unsafe {
                 // Value is present, drop in place
-                core::ptr::drop_in_place((&mut *self.value.get()).as_mut_ptr());
+                core::ptr::drop_in_place((*self.value.get()).as_mut_ptr());
             }
         }
     }
@@ -80,7 +80,7 @@ impl<'a, T, const PRESENT_BIT: usize, const LOCKED_BIT: usize>
         } else {
             // SAFETY: When the mutex created this guard, it set locked to 1 before
             // and present bit is set.
-            Some(unsafe { (&*self.mutex.value.get()).assume_init_ref() })
+            Some(unsafe { (*self.mutex.value.get()).assume_init_ref() })
         }
     }
 
@@ -90,7 +90,7 @@ impl<'a, T, const PRESENT_BIT: usize, const LOCKED_BIT: usize>
         } else {
             // SAFETY: When the mutex created this guard, it set locked to 1 before and
             // present bit is set.
-            Some(unsafe { (&mut *self.mutex.value.get()).assume_init_read() })
+            Some(unsafe { (*self.mutex.value.get()).assume_init_read() })
         }
     }
 
@@ -100,13 +100,13 @@ impl<'a, T, const PRESENT_BIT: usize, const LOCKED_BIT: usize>
             // bit is set.
             unsafe {
                 // Value is present already, drop in place
-                core::ptr::drop_in_place((&mut *self.mutex.value.get()).as_mut_ptr());
+                core::ptr::drop_in_place((*self.mutex.value.get()).as_mut_ptr());
             }
         }
 
         // SAFETY: When the mutex created this guard, it set locked to 1 before.
         unsafe {
-            (&mut *self.mutex.value.get()).write(value);
+            (*self.mutex.value.get()).write(value);
         }
     }
 }

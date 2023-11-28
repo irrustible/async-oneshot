@@ -54,25 +54,6 @@ impl<T> Future for Receiver<T> {
         let mut recv_lock = this.inner.lock_recv();
         recv_lock.emplace(ctx.waker().clone());
 
-        // Check again
-        match this.inner.try_take() {
-            InnerValue::Present(v) => {
-                // Clear the recv waker
-                recv_lock.take();
-
-                this.did_receive = true;
-                return Poll::Ready(Ok(v));
-            }
-            InnerValue::Pending => {}
-            InnerValue::Closed => {
-                // Clear the recv waker
-                recv_lock.take();
-
-                this.did_receive = true;
-                return Poll::Ready(Err(Closed()));
-            }
-        };
-
         // Drop the lock, waker has been registered and we will always return
         // pending now
         drop(recv_lock);
