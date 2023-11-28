@@ -43,7 +43,8 @@ impl<T> Future for Receiver<T> {
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<T, Closed>> {
         let this = Pin::into_inner(self);
 
-        // Attempt lock free take
+        // Attempt lock free take - this makes it substantially faster when
+        // highly contended.
         match this.inner.try_take() {
             InnerValue::Present(v) => {
                 this.did_receive = true;
@@ -58,6 +59,20 @@ impl<T> Future for Receiver<T> {
 
         // No value yet, register a waker
         let mut recv_lock = this.inner.lock_recv();
+
+        // Attempt to take value - we now have a lock on the receiver
+        match this.inner.try_take() {
+            InnerValue::Present(v) => {
+                this.did_receive = true;
+                return Poll::Ready(Ok(v));
+            }
+            InnerValue::Pending => {}
+            InnerValue::Closed => {
+                this.did_receive = true;
+                return Poll::Ready(Err(Closed()));
+            }
+        };
+
         recv_lock.emplace(ctx.waker().clone());
 
         // Drop the lock, waker has been registered and we will always return
