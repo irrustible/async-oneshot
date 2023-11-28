@@ -1,84 +1,105 @@
 use crate::*;
 use alloc::sync::Arc;
-use core::future::{Future, poll_fn};
+use core::future::{poll_fn, Future};
 use core::task::Poll;
 
 /// The sending half of a oneshot channel.
 #[derive(Debug)]
 pub struct Sender<T> {
     inner: Arc<Inner<T>>,
-    done: bool,
+    did_send: bool,
 }
 
 impl<T> Sender<T> {
-    #[inline(always)]
     pub(crate) fn new(inner: Arc<Inner<T>>) -> Self {
-        Sender { inner, done: false }
+        Sender {
+            inner,
+            did_send: false,
+        }
     }
 
     /// Closes the channel by causing an immediate drop
-    #[inline(always)]
-    pub fn close(self) { }
+    pub fn close(self) {}
 
     /// true if the channel is closed
-    #[inline(always)]
-    pub fn is_closed(&self) -> bool { self.inner.state().closed() }
+    ///
+    /// NOTE: This performs an atomic load, but the result may be
+    /// instantly be out of date if it returns false.
+    pub fn is_closed(&self) -> bool {
+        self.inner.is_closed()
+    }
 
     /// Waits for a Receiver to be waiting for us to send something
     /// (i.e. allows you to produce a value to send on demand).
     /// Fails if the Receiver is dropped.
-    #[inline]
     pub fn wait(self) -> impl Future<Output = Result<Self, Closed>> {
-        let mut this = Some(self);
+        let mut fut_state = Some(self);
         poll_fn(move |ctx| {
-            let mut that = this.take().unwrap();
-            let state = that.inner.state();
-            if state.closed() {
-                that.done = true;
-                Poll::Ready(Err(Closed()))
-            } else if state.recv() {
-                Poll::Ready(Ok(that))
-            } else {
-                that.inner.set_send(ctx.waker().clone());
-                this = Some(that);
-                Poll::Pending
+            let this = fut_state.take().unwrap();
+
+            // Attempt lock free check
+            if this.is_closed() {
+                return Poll::Ready(Err(Closed()));
             }
+
+            let recv_lock = this.inner.lock_recv();
+            if recv_lock.get().is_some() {
+                drop(recv_lock);
+
+                // A receiver is waiting for us
+                fut_state = None;
+                return Poll::Ready(Ok(this));
+            }
+
+            // Keep the receiver locked while we set a waker
+            let mut send_lock = this.inner.lock_send();
+            send_lock.emplace(ctx.waker().clone());
+
+            // Drop both locks, we have a waker registered now
+            drop(send_lock);
+            drop(recv_lock);
+
+            fut_state = Some(this);
+            Poll::Pending
         })
     }
 
     /// Sends a message on the channel. Fails if the Receiver is dropped.
-    #[inline]
     pub fn send(&mut self, value: T) -> Result<(), Closed> {
-        if self.done {
+        if self.did_send {
             Err(Closed())
         } else {
-            self.done = true;
+            self.did_send = true;
+
             let inner = &mut self.inner;
-            let state = inner.set_value(value);
-            if !state.closed() {
-                if state.recv() {
-                    inner.recv().wake_by_ref();
-                    Ok(())
-                } else {
-                    Ok(())
-                }
-            } else {
-                inner.take_value(); // force drop.
+            inner.emplace_value(value);
+
+            // Attempt to wake up a receiver
+            let mut recv_lock = inner.lock_recv();
+            if let Some(waker) = recv_lock.take() {
+                waker.wake();
+            }
+
+            if inner.is_closed() {
                 Err(Closed())
+            } else {
+                Ok(())
             }
         }
     }
-
 }
 
 impl<T> Drop for Sender<T> {
     #[inline(always)]
     fn drop(&mut self) {
-        if !self.done {
-            let state = self.inner.state();
-            if !state.closed() {
-                let old = self.inner.close();
-                if old.recv() { self.inner.recv().wake_by_ref(); }
+        if !self.did_send {
+            // Mark as closed
+            self.inner.mark_closed();
+
+            // Attempt to wake up a receiver
+            let mut recv_lock = self.inner.lock_recv();
+            if let Some(waker) = recv_lock.take() {
+                waker.wake();
             }
         }
     }

@@ -14,6 +14,8 @@ mod sender;
 pub use sender::Sender;
 
 mod receiver;
+mod mutex;
+
 pub use receiver::Receiver;
 
 /// Create a new oneshot channel pair.

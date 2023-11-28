@@ -1,119 +1,111 @@
+use crate::mutex::{Mutex, MutexGuard};
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::ptr::drop_in_place;
-use core::sync::atomic::{AtomicUsize, Ordering::{Acquire, AcqRel}};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use core::task::Waker;
+
+const SEND_LOCKED_BIT: usize = 0;
+const SEND_PRESENT_BIT: usize = 1;
+const RECV_LOCKED_BIT: usize = 2;
+const RECV_PRESENT_BIT: usize = 3;
+const VALUE_PRESENT_BIT: usize = 4;
+const CLOSED_BIT: usize = 5;
+
+/// State of the value after taking it.
+pub(crate) enum InnerValue<T> {
+    Present(T),
+    Pending,
+    Closed,
+}
 
 #[derive(Debug)]
 pub(crate) struct Inner<T> {
-    // This one is easy.
+    // Carries the state of the mutexes and value.
     state: AtomicUsize,
-    // This is where it all starts to go a bit wrong.
-    value: UnsafeCell<MaybeUninit<T>>,
-    // Yes, these are subtly different from the last just to confuse you.
-    send: UnsafeCell<MaybeUninit<Waker>>,
-    recv: UnsafeCell<MaybeUninit<Waker>>,
-}
 
-const CLOSED: usize = 0b1000;
-const SEND: usize   = 0b0100;
-const RECV: usize   = 0b0010;
-const READY: usize  = 0b0001;
+    // Waker for sender and receiver.
+    send: Mutex<Waker, SEND_LOCKED_BIT, SEND_PRESENT_BIT>,
+    recv: Mutex<Waker, RECV_LOCKED_BIT, RECV_PRESENT_BIT>,
+
+    // Value of the channel (present if VALUE_PRESENT_BIT is set)
+    value: UnsafeCell<MaybeUninit<T>>,
+}
 
 impl<T> Inner<T> {
     #[inline(always)]
     pub(crate) fn new() -> Self {
         Inner {
             state: AtomicUsize::new(0),
+            send: Mutex::new(),
+            recv: Mutex::new(),
             value: UnsafeCell::new(MaybeUninit::uninit()),
-            send: UnsafeCell::new(MaybeUninit::uninit()),
-            recv: UnsafeCell::new(MaybeUninit::uninit()),
         }
     }
 
-    // Gets the current state
-    #[inline(always)]
-    pub(crate) fn state(&self) -> State { State(self.state.load(Acquire)) }
+    /// Attempts to take the value from the channel.
+    pub fn try_take(&self) -> InnerValue<T> {
+        // Load the state and clear the present bit
+        let state_snapshot = self
+            .state
+            .fetch_and(!(1 << VALUE_PRESENT_BIT), Ordering::Acquire);
 
-    // Gets the receiver's waker. You *must* check the state to ensure
-    // it is set. This would be unsafe if it were public.
-    #[inline(always)]
-    pub(crate) fn recv(&self) -> &Waker { // MUST BE SET
-        debug_assert!(self.state().recv());
-        unsafe { &*(*self.recv.get()).as_ptr() }
+        if state_snapshot & (1 << VALUE_PRESENT_BIT) == 0 {
+            if self.state.load(Ordering::Acquire) & (1 << CLOSED_BIT) != 0 {
+                // Closed bit is set
+                InnerValue::Closed
+            } else {
+                InnerValue::Pending
+            }
+        } else {
+            // SAFETY: We just checked that the value is present and cleared the present bit.
+            InnerValue::Present(unsafe { (&mut *self.value.get()).assume_init_read() })
+        }
     }
 
-    // Sets the receiver's waker.
-    #[inline(always)]
-    pub(crate) fn set_recv(&self, waker: Waker) -> State {
-        let recv = self.recv.get();
-        unsafe { (*recv).as_mut_ptr().write(waker) } // !
-        State(self.state.fetch_or(RECV, AcqRel))
+    /// Sets the value of the channel.
+    pub fn emplace_value(&self, value: T) {
+        // Assert that the value is not present yet.
+        debug_assert!(self.state.load(Ordering::Acquire) & (1 << VALUE_PRESENT_BIT) == 0);
+
+        // This could leak if this method is ever called twice - its the responsibility of the
+        // sender to ensure that this is not the case.
+        unsafe { (&mut *self.value.get()).write(value) };
+        self.state
+            .fetch_or(1 << VALUE_PRESENT_BIT, Ordering::Release);
     }
 
-    // Gets the sender's waker. You *must* check the state to ensure
-    // it is set. This would be unsafe if it were public.
-    #[inline(always)]
-    pub(crate) fn send(&self) -> &Waker {
-        debug_assert!(self.state().send());
-        unsafe { &*(*self.send.get()).as_ptr() }
+    pub fn lock_send(&self) -> MutexGuard<'_, Waker, SEND_LOCKED_BIT, SEND_PRESENT_BIT> {
+        // SAFETY: The state bits are used only by this mutex.
+        unsafe { self.send.lock(&self.state) }
     }
 
-    // Sets the sender's waker.
-    #[inline(always)]
-    pub(crate) fn set_send(&self, waker: Waker) -> State {
-        let send = self.send.get();
-        unsafe { (*send).as_mut_ptr().write(waker) } // !
-        State(self.state.fetch_or(SEND, AcqRel))
+    pub fn lock_recv(&self) -> MutexGuard<'_, Waker, RECV_LOCKED_BIT, RECV_PRESENT_BIT> {
+        // SAFETY: The state bits are used only by this mutex.
+        unsafe { self.recv.lock(&self.state) }
     }
 
-    #[inline(always)]
-    pub(crate) fn take_value(&self) -> T { // MUST BE SET
-        debug_assert!(self.state().ready());
-        unsafe { (*self.value.get()).as_ptr().read() }
+    pub fn mark_closed(&self) {
+        self.state.fetch_or(1 << CLOSED_BIT, Ordering::Acquire);
     }
 
-    #[inline(always)]
-    pub(crate) fn set_value(&self, value: T) -> State {
-        debug_assert!(!self.state().ready());
-        let val = self.value.get();
-        unsafe { (*val).as_mut_ptr().write(value) }
-        State(self.state.fetch_or(READY, AcqRel))
-    }
-
-    #[inline(always)]
-    pub(crate) fn close(&self) -> State {
-        State(self.state.fetch_or(CLOSED, AcqRel))
+    pub fn is_closed(&self) -> bool {
+        self.state.load(Ordering::Acquire) & (1 << CLOSED_BIT) != 0
     }
 }
 
 impl<T> Drop for Inner<T> {
-    #[inline(always)]
     fn drop(&mut self) {
-        let state = State(*self.state.get_mut());
-        // Drop the wakers if they are present
-        if state.recv() {
-            unsafe { drop_in_place((&mut *self.recv.get()).as_mut_ptr()); }
-        }
-        if state.send() {
-            unsafe { drop_in_place((&mut *self.send.get()).as_mut_ptr()); }
+        // Make sure to release drop the mutexes.
+        self.send.drop(&self.state);
+        self.recv.drop(&self.state);
+
+        // Drop the value if present.
+        if self.state.load(Ordering::Acquire) & (1 << VALUE_PRESENT_BIT) != 0 {
+            // SAFETY: We just checked that the value is present.
+            unsafe { (&mut *self.value.get()).assume_init_drop() };
         }
     }
 }
 
 unsafe impl<T: Send> Send for Inner<T> {}
 unsafe impl<T: Send> Sync for Inner<T> {}
-
-#[derive(Clone, Copy)]
-pub(crate) struct State(usize);
-
-impl State {
-    #[inline(always)]
-    pub(crate) fn closed(&self) -> bool { (self.0 & CLOSED) == CLOSED }
-    #[inline(always)]
-    pub(crate) fn ready(&self)  -> bool { (self.0 & READY ) == READY  }
-    #[inline(always)]
-    pub(crate) fn send(&self)   -> bool { (self.0 & SEND  ) == SEND   }
-    #[inline(always)]
-    pub(crate) fn recv(&self)   -> bool { (self.0 & RECV  ) == RECV   }
-}
