@@ -84,8 +84,9 @@ impl<T> Inner<T> {
         unsafe { self.recv.lock(&self.state) }
     }
 
-    pub fn mark_closed(&self) {
-        self.state.fetch_or(1 << CLOSED_BIT, Ordering::Acquire);
+    /// Marks the channel as closed and returns true if it was not closed before.
+    pub fn mark_closed(&self) -> bool {
+        self.state.fetch_or(1 << CLOSED_BIT, Ordering::Acquire) & (1 << CLOSED_BIT) == 0
     }
 
     pub fn is_closed(&self) -> bool {

@@ -23,11 +23,17 @@ impl<T> Receiver<T> {
 
     /// Attempts to receive. On failure, if the channel is not closed,
     /// returns self to try again.
-    pub fn try_recv(self) -> Result<T, TryRecvError<T>> {
+    pub fn try_recv(mut self) -> Result<T, TryRecvError<T>> {
         match self.inner.try_take() {
-            InnerValue::Present(v) => Ok(v),
+            InnerValue::Present(v) => {
+                self.did_receive = true;
+                Ok(v)
+            }
             InnerValue::Pending => Err(TryRecvError::Empty(self)),
-            InnerValue::Closed => Err(TryRecvError::Closed),
+            InnerValue::Closed => {
+                self.did_receive = true;
+                Err(TryRecvError::Closed)
+            }
         }
     }
 }
@@ -69,12 +75,12 @@ impl<T> Future for Receiver<T> {
 }
 
 impl<T> Drop for Receiver<T> {
-    #[inline(always)]
     fn drop(&mut self) {
-        if !self.did_receive {
-            // Mark as closed
-            self.inner.mark_closed();
-
+        // Mark as closed, and if it wasn't closed already perform cleanup and notify
+        //
+        // If the channel was closed already, the other side is aware of this and
+        // doesn't need to be notified.
+        if !self.did_receive && self.inner.mark_closed() {
             // Make sure to remove the waker we registered - the sender uses it to determine
             // if we are waiting.
             let mut recv_lock = self.inner.lock_recv();

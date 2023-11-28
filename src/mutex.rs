@@ -75,7 +75,7 @@ impl<'a, T, const PRESENT_BIT: usize, const LOCKED_BIT: usize>
     MutexGuard<'a, T, PRESENT_BIT, LOCKED_BIT>
 {
     pub(crate) fn get(&self) -> Option<&T> {
-        if self.state.load(Ordering::Acquire) & (1 << PRESENT_BIT) == 0 {
+        if self.state.load(Ordering::Relaxed) & (1 << PRESENT_BIT) == 0 {
             None
         } else {
             // SAFETY: When the mutex created this guard, it set locked to 1 before
@@ -85,7 +85,7 @@ impl<'a, T, const PRESENT_BIT: usize, const LOCKED_BIT: usize>
     }
 
     pub(crate) fn take(&mut self) -> Option<T> {
-        if self.state.fetch_and(!(1 << PRESENT_BIT), Ordering::Acquire) & (1 << PRESENT_BIT) == 0 {
+        if self.state.fetch_and(!(1 << PRESENT_BIT), Ordering::Relaxed) & (1 << PRESENT_BIT) == 0 {
             None
         } else {
             // SAFETY: When the mutex created this guard, it set locked to 1 before and
@@ -95,7 +95,7 @@ impl<'a, T, const PRESENT_BIT: usize, const LOCKED_BIT: usize>
     }
 
     pub(crate) fn emplace(&mut self, value: T) {
-        if self.state.fetch_or(1 << PRESENT_BIT, Ordering::Acquire) & (1 << PRESENT_BIT) != 0 {
+        if self.state.fetch_or(1 << PRESENT_BIT, Ordering::Relaxed) & (1 << PRESENT_BIT) != 0 {
             // SAFETY: When the mutex created this guard, it set locked to 1 before and present
             // bit is set.
             unsafe {
