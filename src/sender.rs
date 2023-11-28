@@ -1,7 +1,7 @@
 use crate::*;
 use alloc::sync::Arc;
-use core::{future::Future, task::Poll};
-use futures_micro::poll_fn;
+use core::future::{Future, poll_fn};
+use core::task::Poll;
 
 /// The sending half of a oneshot channel.
 #[derive(Debug)]

@@ -1,13 +1,15 @@
 use async_oneshot::*;
-use futures_lite::future::block_on;
-use futures_micro::prelude::*;
+use futures::{future::join, executor::block_on};
 use waker_fn::waker_fn;
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Poll, Context};
 
 #[test]
 fn send_recv() {
     let (mut s,r) = oneshot::<i32>();
     assert_eq!(
-        block_on(zip!(async { s.send(42).unwrap() }, r)),
+        block_on(join(async { s.send(42).unwrap() }, r)),
         ((), Ok(42))
     )
 }
@@ -15,7 +17,7 @@ fn send_recv() {
 fn recv_send() {
     let (mut s,r) = oneshot::<i32>();
     assert_eq!(
-        block_on(zip!(r, async { s.send(42).unwrap() })),
+        block_on(join(r, async { s.send(42).unwrap() })),
         (Ok(42), ())
     )
 }
@@ -54,7 +56,7 @@ fn send_close() {
 fn recv_close() {
     let (s,r) = oneshot::<bool>();
     assert_eq!(
-        block_on(zip!(r, async { s.close() })),
+        block_on(join(r, async { s.close() })),
         (Err(Closed()), ())
     )
 }
@@ -64,7 +66,7 @@ fn wait_close() {
     let (s,r) = oneshot::<bool>();
     assert_eq!(
         block_on(
-            zip!(async { s.wait().await.unwrap_err() },
+            join(async { s.wait().await.unwrap_err() },
                  async { r.close() })
         ),
         (Closed(), ())
@@ -87,7 +89,7 @@ fn wait_recv_close() {
     let (s,r) = oneshot::<bool>();
     assert_eq!(
         block_on(
-            zip!(async { s.wait().await.unwrap().close(); println!("closed"); }, r)
+            join(async { s.wait().await.unwrap().close(); println!("closed"); }, r)
         ),
         ((), Err(Closed()))
     )
@@ -98,7 +100,7 @@ fn wait_recv_send() {
     let (s,r) = oneshot::<i32>();
     assert_eq!(
         block_on(
-            zip!(async { let mut s = s.wait().await?; s.send(42) }, r)
+            join(async { let mut s = s.wait().await?; s.send(42) }, r)
         ),
         (Ok(()), Ok(42))
     )

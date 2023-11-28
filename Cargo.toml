@@ -9,16 +9,13 @@ homepage = "https://github.com/irrustible/async-oneshot"
 repository = "https://github.com/irrustible/async-oneshot"
 documentation = "https://docs.rs/async-oneshot"
 license = "MPL-2.0"
-edition = "2018"
+edition = "2021"
 readme = "README.md"
 
-[dependencies]
-futures-micro = "0.5.0"
-
 [dev-dependencies]
-futures-lite="1"
+futures = "0.3.29"
 waker-fn = "1"
-criterion = { version = "0.3", features = ["real_blackbox"] }
+criterion = { version = "0.5.1", features = ["real_blackbox"] }
 
 [[bench]]
 name = "oneshot"
