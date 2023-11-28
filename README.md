@@ -42,6 +42,22 @@ The benchmarks are synthetic and a bit of fun.
 
 ## Changelog
 
+### v0.6.0
+
+Fixes:
+
+* Fix possible race conditions by implementing spinlocks.
+  For now this degrades performance slightly, but it should 
+  get rid of race conditions.
+
+Breaking changes:
+
+* Bumped Rust edition to 2021.
+
+Improvements:
+
+* Get rid of all runtime dependencies.
+
 ### v0.5.0
 
 Breaking changes:
